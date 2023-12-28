@@ -13,12 +13,13 @@ import sys
 from dotenv import load_dotenv
 import shutil
 import subprocess
+import pandas as pd
 
 # append grandparent
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 
-from utils.display_tools import pprint_dict, pprint_ls, print_logger
+from utils.display_tools import pprint_dict, pprint_ls, print_logger, pprint_df
 
 from config import (
     file_dir,
@@ -43,18 +44,18 @@ TOKEN = os.environ["PLEX_TOKEN"]
 tv_shows_section_id = "2"
 
 dict_shows_to_watch = {
-    "American Dad!": 6,
-    "Hemlock Grove": 1,
+    "American Dad!": 10,
+    "Hemlock Grove": 5,
     "The Great": 3,
-    "Lucifer": 3,
+    "Lucifer": 5,
     "Marvel's Luke Cage": 3,
-    "New Girl": 3,
-    "Fullmetal Alchemist: Brotherhood": 6,
-    "The Boys": 3,
+    "New Girl": 5,
+    "Fullmetal Alchemist: Brotherhood": 10,
+    "The Boys": 5,
     "Loki": 5,
-    "House": 3,
-    "House of the Dragon": 2,
-    "Mr. Robot": 3,
+    "House": 5,
+    "House of the Dragon": 3,
+    "Mr. Robot": 5,
 }
 
 ls_movies_to_watch = [
@@ -242,9 +243,7 @@ def get_list_download_tasks():
     return ls_tasks
 
 
-def download_files(dry_run=False):
-    ls_tasks = get_list_download_tasks()
-
+def download_files(ls_tasks, dry_run=False):
     ls_files_to_skip = []
     size_of_skip = 0
     # if dry run, initilize ls files to copy, ls_files to skip, size of copy, and size of skip
@@ -255,9 +254,9 @@ def download_files(dry_run=False):
     if os.path.exists(
         os.path.join(get_destination_path(), "plex_downloader_target.txt")
     ):
-        print("plex_downloader_target exists")
+        print_logger("plex_downloader_target exists")
     else:
-        print("target location doesnt exist")
+        print_logger("target location doesnt exist", level="error")
         raise Exception("Target location doesnt exist")
 
     for task in ls_tasks:
@@ -267,58 +266,89 @@ def download_files(dry_run=False):
         file_size = os.path.getsize(source_path)
         base_name = os.path.basename(source_path)
 
-        print("#" * 50)
-        print(f"Working on file: {base_name}")
+        if not os.path.exists(source_path):
+            print_logger(f"Source path {source_path} does not exist")
+            continue
 
-        if os.path.exists(source_path):
-            file_already_present = os.path.exists(destination_file)
-            if file_already_present:
-                print(
-                    f"File {os.path.basename(destination_file)} already present, skipping, source size: {file_size}"
-                )
-                ls_files_to_skip.append(base_name)
-                size_of_skip += file_size
-            elif dry_run:
-                print(
-                    f"Dry run: would use {'robocopy' if operating_system == 'Windows' else 'rsync'} to copy {source_path} to {destination_dir}, size: {file_size}"
-                )
-                dict_files_to_copy[base_name] = f"{file_size / 1e9} GB"
-                size_of_copy += file_size
-            else:
-                if not os.path.exists(destination_dir):
-                    os.makedirs(destination_dir)
-                if operating_system == "Windows":
-                    print(
-                        f"Using robocopy to copy {source_path} to {destination_dir}, size: {file_size}"
-                    )
-                    subprocess.run(
-                        [
-                            "robocopy",
-                            os.path.dirname(source_path),
-                            destination_dir,
-                            base_name,
-                        ]
-                    )
-                elif operating_system == "Linux":
-                    print(
-                        f"Using rsync to copy {source_path} to {destination_dir}, size: {file_size}"
-                    )
-                    subprocess.run(["rsync", "-av", source_path, destination_dir])
-                else:
-                    raise Exception("Operating system not recognized")
-
+        file_already_present = os.path.exists(destination_file)
+        if file_already_present:
+            print_logger(
+                f"File {os.path.basename(destination_file)} already present, skipping, source size: {file_size / 1e9:.2f}",
+                level="debug",
+            )
+            ls_files_to_skip.append(base_name)
+            size_of_skip += file_size
+        elif dry_run:
+            print_logger(
+                f"Dry run: would use {'robocopy' if operating_system == 'Windows' else 'rsync'} to copy {source_path} to {destination_dir}, size: {file_size / 1e9:.2f}",
+                level="debug",
+            )
+            dict_files_to_copy[base_name] = f"{file_size / 1e9:.2f} GB"
+            size_of_copy += file_size
         else:
-            print(f"Source path {source_path} does not exist")
+            if not os.path.exists(destination_dir):
+                os.makedirs(destination_dir)
+            if operating_system == "Windows":
+                print_logger(
+                    f"Using robocopy to copy {source_path} to {destination_dir}, size: {file_size / 1e9:.2f}"
+                )
+                subprocess.run(
+                    [
+                        "robocopy",
+                        os.path.dirname(source_path),
+                        destination_dir,
+                        base_name,
+                    ]
+                )
+            elif operating_system == "Linux":
+                print_logger(
+                    f"Using rsync to copy {source_path} to {destination_dir}, size: {file_size / 1e9:.2f}"
+                )
+                subprocess.run(["rsync", "-av", source_path, destination_dir])
+            else:
+                raise Exception("Operating system not recognized")
 
     if dry_run:
-        print("#" * 50)
-        print("Dry Run Summary:")
+        print_logger("Dry Run Summary:", as_break=True)
         print_logger("Files to copy:")
-        pprint_dict(dict_files_to_copy)
-        print(f"Files to copy: {len(dict_files_to_copy)}")
-        print(f"Size of files to copy: {size_of_copy / 1e9} GB")
-        print(f"Files to skip: {len(ls_files_to_skip)}")
-        print(f"Size of files to skip: {size_of_skip / 1e9} GB")
+        pprint_df(
+            pd.DataFrame.from_dict(dict_files_to_copy, orient="index", columns=["Size"])
+            .reset_index()
+            .rename(columns={"index": "File"})
+        )
+        print_logger(f"Files to copy: {len(dict_files_to_copy)}")
+        print_logger(f"Size of files to copy: {size_of_copy / 1e9:.2f} GB")
+        print_logger(f"Files to skip: {len(ls_files_to_skip)}")
+        print_logger(f"Size of files to skip: {size_of_skip / 1e9:.2f} GB")
+
+
+def remove_unwanted_files(ls_tasks, dry_run=False):
+    ls_desired_files = [task[1] for task in ls_tasks]
+    dict_files_to_delete = {}
+    size_of_delete = 0
+    for clean_dir in ["TV", "Movies"]:
+        for root, dirs, files in os.walk(
+            os.path.join(get_destination_path(), clean_dir)
+        ):
+            for file in files:
+                if os.path.join(root, file) not in ls_desired_files:
+                    dict_files_to_delete[
+                        f"{file}"
+                    ] = f"{os.path.getsize(os.path.join(root, file)) / 1e9:.2f} GB"
+                    size_of_delete += os.path.getsize(os.path.join(root, file))
+                    if not dry_run:
+                        os.remove(os.path.join(root, file))
+    if dry_run:
+        print_logger("Unwanted Files:", as_break=True)
+        pprint_df(
+            pd.DataFrame.from_dict(
+                dict_files_to_delete, orient="index", columns=["Size"]
+            )
+            .reset_index()
+            .rename(columns={"index": "File"})
+        )
+        print_logger(f"Files to delete: {len(dict_files_to_delete)}")
+        print_logger(f"Size of files to delete: {size_of_delete / 1e9:.2f} GB")
 
 
 # %%
@@ -326,8 +356,11 @@ def download_files(dry_run=False):
 
 
 if __name__ == "__main__":
+    dry_run = True
     start_time = time.time()
-    download_files(dry_run=True)
+    ls_tasks = get_list_download_tasks()
+    download_files(ls_tasks, dry_run=dry_run)
+    remove_unwanted_files(ls_tasks, dry_run=dry_run)
     end_time = time.time()
 
     print_logger(f"Time taken: {end_time - start_time} seconds", as_break=True)
