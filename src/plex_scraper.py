@@ -47,11 +47,14 @@ dict_shows_to_watch = {
     "Hemlock Grove": 1,
     "The Great": 3,
     "Lucifer": 3,
-    "Luke Cage": 3,
+    "Marvel's Luke Cage": 3,
     "New Girl": 3,
     "Fullmetal Alchemist: Brotherhood": 6,
     "The Boys": 3,
     "Loki": 5,
+    "House": 3,
+    "House of the Dragon": 2,
+    "Mr. Robot": 3,
 }
 
 ls_movies_to_watch = [
@@ -83,7 +86,7 @@ def get_mapped_source_path_path():
 
 def get_destination_path():
     if operating_system == "Windows":
-        return os.path.join("E:\\", "Media")
+        return os.path.join("I:\\", "Media")
     elif operating_system == "Linux":
         return "/home/james/Downloads"  # TODO fix this on a system with a mount
     else:
@@ -129,7 +132,7 @@ def get_movies():
         dict_all_movies.setdefault(movie_title, {})["movie_id"] = movie_id
 
         for watch_movie in ls_movies_to_watch:
-            if watch_movie in movie_title:
+            if watch_movie == movie_title.split(" (")[0]:
                 dict_watch_movies.setdefault(watch_movie, {})["movie_id"] = movie_id
 
     return dict_all_movies, dict_watch_movies
@@ -157,7 +160,7 @@ def get_shows():
         dict_all_shows.setdefault(show_title, {})["show_id"] = show_id
 
         for watch_show in dict_shows_to_watch.keys():
-            if watch_show in show_title:
+            if watch_show == show_title:
                 dict_watch_shows.setdefault(watch_show, {})["show_id"] = show_id
 
     return dict_all_shows, dict_watch_shows
@@ -242,49 +245,63 @@ def get_list_download_tasks():
 def download_files(dry_run=False):
     ls_tasks = get_list_download_tasks()
 
+    ls_files_to_skip = []
+    size_of_skip = 0
+    # if dry run, initilize ls files to copy, ls_files to skip, size of copy, and size of skip
+    if dry_run:
+        dict_files_to_copy = {}
+        size_of_copy = 0
+
     if os.path.exists(
         os.path.join(get_destination_path(), "plex_downloader_target.txt")
     ):
         print("plex_downloader_target exists")
     else:
         print("target location doesnt exist")
+        raise Exception("Target location doesnt exist")
 
     for task in ls_tasks:
         source_path = task[0]
         destination_file = task[1]
         destination_dir = os.path.dirname(destination_file)
+        file_size = os.path.getsize(source_path)
+        base_name = os.path.basename(source_path)
 
         print("#" * 50)
-        print(f"Working on file: {os.path.basename(source_path)}")
+        print(f"Working on file: {base_name}")
 
         if os.path.exists(source_path):
             file_already_present = os.path.exists(destination_file)
             if file_already_present:
                 print(
-                    f"File {os.path.basename(destination_file)} already present, skipping, source size: {os.path.getsize(source_path)}"
+                    f"File {os.path.basename(destination_file)} already present, skipping, source size: {file_size}"
                 )
+                ls_files_to_skip.append(base_name)
+                size_of_skip += file_size
             elif dry_run:
                 print(
-                    f"Dry run: would use {'robocopy' if operating_system == 'Windows' else 'rsync'} to copy {source_path} to {destination_dir}, size: {os.path.getsize(source_path)}"
+                    f"Dry run: would use {'robocopy' if operating_system == 'Windows' else 'rsync'} to copy {source_path} to {destination_dir}, size: {file_size}"
                 )
+                dict_files_to_copy[base_name] = f"{file_size / 1e9} GB"
+                size_of_copy += file_size
             else:
                 if not os.path.exists(destination_dir):
                     os.makedirs(destination_dir)
                 if operating_system == "Windows":
                     print(
-                        f"Using robocopy to copy {source_path} to {destination_dir}, size: {os.path.getsize(source_path)}"
+                        f"Using robocopy to copy {source_path} to {destination_dir}, size: {file_size}"
                     )
                     subprocess.run(
                         [
                             "robocopy",
                             os.path.dirname(source_path),
                             destination_dir,
-                            os.path.basename(source_path),
+                            base_name,
                         ]
                     )
                 elif operating_system == "Linux":
                     print(
-                        f"Using rsync to copy {source_path} to {destination_dir}, size: {os.path.getsize(source_path)}"
+                        f"Using rsync to copy {source_path} to {destination_dir}, size: {file_size}"
                     )
                     subprocess.run(["rsync", "-av", source_path, destination_dir])
                 else:
@@ -292,6 +309,16 @@ def download_files(dry_run=False):
 
         else:
             print(f"Source path {source_path} does not exist")
+
+    if dry_run:
+        print("#" * 50)
+        print("Dry Run Summary:")
+        print_logger("Files to copy:")
+        pprint_dict(dict_files_to_copy)
+        print(f"Files to copy: {len(dict_files_to_copy)}")
+        print(f"Size of files to copy: {size_of_copy / 1e9} GB")
+        print(f"Files to skip: {len(ls_files_to_skip)}")
+        print(f"Size of files to skip: {size_of_skip / 1e9} GB")
 
 
 # %%
