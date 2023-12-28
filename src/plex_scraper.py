@@ -359,8 +359,8 @@ if __name__ == "__main__":
     dry_run = True
     start_time = time.time()
     ls_tasks = get_list_download_tasks()
-    download_files(ls_tasks, dry_run=dry_run)
     remove_unwanted_files(ls_tasks, dry_run=dry_run)
+    download_files(ls_tasks, dry_run=dry_run)
     end_time = time.time()
 
     print_logger(f"Time taken: {end_time - start_time} seconds", as_break=True)
