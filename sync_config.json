@@ -1,0 +1,45 @@
+{
+    "sync_folders": [
+        {
+            "sync_name": "Audiobooks",
+            "src_path_type": "Windows Network Mount",
+            "src_path": [
+                "192.168.86.31",
+                "Media",
+                "Audiobooks"
+            ],
+            "dest_path_type": "Windows Local Drive",
+            "dest_path": [
+                "I:",
+                "Media",
+                "Audiobooks"
+            ],
+            "included_subfolders": [
+                [
+                    "Orson Scott Card",
+                    "Enderverse- Publication Order"
+                ],
+                [
+                    "Orson Scott Card",
+                    "Ender's Saga",
+                    "Ender's Saga 0.5 - First Meetings- In the Enderverse"
+                ],
+                [
+                    "Orson Scott Card",
+                    "Ender's Saga",
+                    "Ender's Saga 4 - Children of the Mind"
+                ],
+                [
+                    "Orson Scott Card",
+                    "Ender's Saga",
+                    "Ender's Saga 5 - Ender in Exile"
+                ],
+                [
+                    "Sarah J. Maas",
+                    "Throne of Glass"
+                ]
+            ],
+            "included_files": []
+        }
+    ]
+}
