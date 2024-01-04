@@ -19,9 +19,6 @@ import json
 # append grandparent
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-
-from utils.display_tools import pprint_dict, pprint_ls, print_logger, pprint_df
-
 from config import (
     file_dir,
     parent_dir,
@@ -29,6 +26,10 @@ from config import (
     great_grandparent_dir,
     data_dir,
 )
+
+from utils.display_tools import pprint_dict, pprint_ls, print_logger, pprint_df
+
+import utils.android_tools
 
 
 # %%
@@ -49,6 +50,7 @@ default_config = {
             "dest_path": ["I:", "Media", "Audiobooks"],
             "included_subfolders": [
                 ["Orson Scott Card", "Enderverse- Publication Order"],
+                ["Orson Scott Card", "The Shadow Series"],
                 [
                     "Orson Scott Card",
                     "Ender's Saga",
@@ -75,7 +77,7 @@ default_config = {
 }
 
 # if it doesnt exist, creat it with comments on formatting
-if not os.path.isfile(config_file_path):
+if not os.path.isfile(config_file_path) or True:
     with open(config_file_path, "w") as f:
         json.dump(default_config, f, indent=4)
 
@@ -155,7 +157,7 @@ def sync_directory(
             print_logger(f"Syncing subfolder: {subfolder}")
             src_subfolder = os.path.join(src_path, *subfolder)
             dest_subfolder = os.path.join(dest_path, *subfolder)
-            print_logger(f"Syncing:\n{src_subfolder}\nto\n{dest_subfolder}")
+            print_logger(f"Syncing: {src_subfolder} to {dest_subfolder}")
             # if windows then robocopy
             if host_operating_system == "Windows":
                 subprocess.run(
@@ -175,7 +177,7 @@ def sync_directory(
             print_logger(f"Syncing file: {file}")
             src_file = os.path.join(src_path, *file)
             dest_file = os.path.join(dest_path, *file)
-            print_logger(f"Syncing:\n{src_file}\nto\n{dest_file}")
+            print_logger(f"Syncing: {src_file} to {dest_file}")
             # if windows then robocopy for a single file
             if host_operating_system == "Windows":
                 subprocess.run(
