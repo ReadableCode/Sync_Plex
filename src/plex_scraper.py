@@ -56,6 +56,7 @@ dict_shows_to_watch = {
     "House": 5,
     "House of the Dragon": 3,
     "Mr. Robot": 5,
+    "2 Broke Girls": 12,
 }
 
 ls_movies_to_watch = [
