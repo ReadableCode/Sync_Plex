@@ -46,6 +46,7 @@ tv_shows_section_id = "2"
 dict_shows_to_watch = {
     "American Dad!": 10,
     "Hemlock Grove": 5,
+    "Reacher": 5,
     "The Great": 3,
     "Lucifer": 5,
     "Marvel's Luke Cage": 3,
@@ -57,6 +58,8 @@ dict_shows_to_watch = {
     "House of the Dragon": 3,
     "Mr. Robot": 5,
     "2 Broke Girls": 12,
+    "Game of Thrones": 3,
+    "The Umbrella Academy": 5,
 }
 
 ls_movies_to_watch = [
@@ -293,14 +296,23 @@ def download_files(ls_tasks, dry_run=False):
                 print_logger(
                     f"Using robocopy to copy {source_path} to {destination_dir}, size: {file_size / 1e9:.2f}"
                 )
-                subprocess.run(
+                result = subprocess.run(
                     [
                         "robocopy",
                         os.path.dirname(source_path),
                         destination_dir,
                         base_name,
-                    ]
+                    ],
+                    capture_output=True,  # Capture the output of the command
+                    text=True,  # Return the output as a string (Python 3.7+)
                 )
+                success = result.returncode == 1
+                if not success:
+                    print_logger(
+                        f"Error copying file {source_path} to {destination_dir}, size: {file_size / 1e9:.2f}, error: {result}",
+                        level="error",
+                    )
+
             elif operating_system == "Linux":
                 print_logger(
                     f"Using rsync to copy {source_path} to {destination_dir}, size: {file_size / 1e9:.2f}"
