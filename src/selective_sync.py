@@ -88,7 +88,7 @@ print(config)
 
 
 # %%
-## Variables ##
+## Functions ##
 
 
 def clean_destination_directory(dest_path, included_subfolders, included_files):
