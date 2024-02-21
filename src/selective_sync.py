@@ -165,10 +165,10 @@ def sync_directory(
                         "robocopy",
                         src_subfolder,
                         dest_subfolder,
-                        "/MIR",
-                        "/Z",
-                        "/R:5",
-                        "/W:5",
+                        "/MIR",  # enable to mirror the source directory
+                        "/Z",  # enable to restartable mode
+                        "/R:5",  # number of retries on failed copies
+                        "/W:5",  # wait time between retries
                     ]
                 )
 
