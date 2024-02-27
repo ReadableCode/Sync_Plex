@@ -1,5 +1,5 @@
 # %%
-## Imports ##
+# Imports #
 
 
 if __name__ != "__main__":
@@ -38,7 +38,7 @@ from utils.display_tools import pprint_dict, pprint_ls, print_logger, pprint_df
 
 
 # %%
-## Variables ##
+# Variables #
 
 
 # Try to find adb in the system PATH
@@ -53,7 +53,7 @@ else:
 
 
 # %%
-## Functions ##
+# Functions #
 
 
 def ls_directory(adb_folder_path):
@@ -95,7 +95,7 @@ def delete_file_from_device(source):
 
 
 # %%
-## Main ##
+# Main #
 
 
 if __name__ == "__main__":
