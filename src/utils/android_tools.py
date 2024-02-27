@@ -5,35 +5,28 @@
 if __name__ != "__main__":
     print(f"Importing {__name__}")
 
-import time
-import requests
-import xml.etree.ElementTree as ET
 import os
 import sys
-from dotenv import load_dotenv
 import shutil
 import subprocess
-import pandas as pd
 
 # append grandparent
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+if __name__ == "__main__":
+    sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from utils.config_utils import (
-    file_dir,
-    parent_dir,
-    grandparent_dir,
-    great_grandparent_dir,
     data_dir,
 )
 
-from utils.display_tools import pprint_dict, pprint_ls, print_logger, pprint_df
+from utils.display_tools import print_logger
 
 
 # %%
 # ADB Setup #
 
 
-# On Windows choco can be used to install ADP by openning a powershell window as admin and running  the command:
+# On Windows choco can be used to install ADP by:
+# openning a powershell window as admin and running  the command:
 # choco install adb
 
 
