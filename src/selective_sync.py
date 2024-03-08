@@ -1,39 +1,37 @@
 # %%
-## Imports ##
+# Imports #
 
 
 if __name__ != "__main__":
     print(f"Importing {__name__}")
 
-import time
-import requests
-import xml.etree.ElementTree as ET
+import json
 import os
-import sys
-from dotenv import load_dotenv
 import shutil
 import subprocess
+import sys
+import time
+import xml.etree.ElementTree as ET
+
 import pandas as pd
-import json
+import requests
+from dotenv import load_dotenv
 
 # append grandparent
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+import utils.android_tools
 from config import (
+    data_dir,
     file_dir,
-    parent_dir,
     grandparent_dir,
     great_grandparent_dir,
-    data_dir,
+    parent_dir,
 )
-
-from utils.display_tools import pprint_dict, pprint_ls, print_logger, pprint_df
-
-import utils.android_tools
-
+from utils.display_tools import pprint_df, pprint_dict, pprint_ls, print_logger
 
 # %%
-## Variables ##
+# Variables #
 
 
 host_operating_system = "Windows" if os.name == "nt" else "Linux"
@@ -88,7 +86,7 @@ print(config)
 
 
 # %%
-## Functions ##
+# Functions #
 
 
 def clean_destination_directory(dest_path, included_subfolders, included_files):

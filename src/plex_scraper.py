@@ -1,37 +1,36 @@
 # %%
-## Imports ##
+# Imports #
 
 
 if __name__ != "__main__":
     print(f"Importing {__name__}")
 
-import time
-import requests
-import xml.etree.ElementTree as ET
 import os
-import sys
-from dotenv import load_dotenv
 import shutil
 import subprocess
+import sys
+import time
+import xml.etree.ElementTree as ET
+
 import pandas as pd
+import requests
+from dotenv import load_dotenv
 
 # append grandparent
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 
-from utils.display_tools import pprint_dict, pprint_ls, print_logger, pprint_df
-
 from config import (
+    data_dir,
     file_dir,
-    parent_dir,
     grandparent_dir,
     great_grandparent_dir,
-    data_dir,
+    parent_dir,
 )
-
+from utils.display_tools import pprint_df, pprint_dict, pprint_ls, print_logger
 
 # %%
-## Variables ##
+# Variables #
 
 
 operating_system = "Windows" if os.name == "nt" else "Linux"
@@ -75,7 +74,7 @@ ls_movies_to_watch = [
 
 
 # %%
-## Path Functions ##
+# Path Functions #
 
 
 def get_mapped_source_path_path():
@@ -97,7 +96,7 @@ def get_destination_path():
 
 
 # %%
-## Get Shows ##
+# Get Shows #
 
 
 def get_plex_sections():
@@ -170,7 +169,7 @@ def get_shows():
 
 
 # %%
-## Imports ##
+# Imports #
 
 
 def get_file_paths_next_x_episodes_of_show(show_title, num_episodes):
@@ -363,7 +362,7 @@ def remove_unwanted_files(ls_tasks, dry_run=False):
 
 
 # %%
-## Main ##
+# Main #
 
 
 if __name__ == "__main__":
