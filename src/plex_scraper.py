@@ -1,10 +1,6 @@
 # %%
 # Imports #
 
-
-if __name__ != "__main__":
-    print(f"Importing {__name__}")
-
 import os
 import shutil
 import subprocess
@@ -342,9 +338,9 @@ def remove_unwanted_files(ls_tasks, dry_run=False):
         ):
             for file in files:
                 if os.path.join(root, file) not in ls_desired_files:
-                    dict_files_to_delete[
-                        f"{file}"
-                    ] = f"{os.path.getsize(os.path.join(root, file)) / 1e9:.2f} GB"
+                    dict_files_to_delete[f"{file}"] = (
+                        f"{os.path.getsize(os.path.join(root, file)) / 1e9:.2f} GB"
+                    )
                     size_of_delete += os.path.getsize(os.path.join(root, file))
                     if not dry_run:
                         os.remove(os.path.join(root, file))

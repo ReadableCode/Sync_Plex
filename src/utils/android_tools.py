@@ -1,25 +1,17 @@
 # %%
 # Imports #
 
-
-if __name__ != "__main__":
-    print(f"Importing {__name__}")
-
 import os
-import sys
 import shutil
 import subprocess
+import sys
 
 # append grandparent
 if __name__ == "__main__":
     sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from utils.config_utils import (
-    data_dir,
-)
-
+from utils.config_utils import data_dir
 from utils.display_tools import print_logger
-
 
 # %%
 # ADB Setup #
