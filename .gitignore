@@ -30,3 +30,5 @@ token.json
 desktop.ini
 sheets.googleapis.com-python.json
 looker.ini
+*.egg-info/
+.venv

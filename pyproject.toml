@@ -1,0 +1,14 @@
+[project]
+name = "Sync_Plex"
+version = "0.1.0"
+description = "Sync_Plex"
+requires-python = ">=3.12,<3.14"
+dependencies = [
+    "ipykernel>=6.29.5",
+    "pandas>=2.2.3",
+    "pandas-stubs>=2.2.3.241126",
+    "python-dotenv>=1.0.1",
+    "requests>=2.32.3",
+    "tabulate>=0.9.0",
+    "types-tabulate>=0.9.0.20241207",
+]

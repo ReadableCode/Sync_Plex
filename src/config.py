@@ -9,6 +9,7 @@ parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 grandparent_dir = os.path.dirname(parent_dir)
 great_grandparent_dir = os.path.dirname(grandparent_dir)
 
+data_dir = os.path.join(parent_dir, "data")
 src_dir = os.path.join(parent_dir, "src")
 src_utils_dir = os.path.join(src_dir, "utils")
 

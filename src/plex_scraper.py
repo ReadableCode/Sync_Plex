@@ -2,9 +2,7 @@
 # Imports #
 
 import os
-import shutil
 import subprocess
-import sys
 import time
 import xml.etree.ElementTree as ET
 
@@ -12,18 +10,13 @@ import pandas as pd
 import requests
 from dotenv import load_dotenv
 
-# append grandparent
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-
-from config import (
-    data_dir,
-    file_dir,
-    grandparent_dir,
-    great_grandparent_dir,
-    parent_dir,
+from config import grandparent_dir
+from utils.display_tools import (  # noqa: F401
+    pprint_df,
+    pprint_dict,
+    pprint_ls,
+    print_logger,
 )
-from utils.display_tools import pprint_df, pprint_dict, pprint_ls, print_logger
 
 # %%
 # Variables #
@@ -39,7 +32,7 @@ TOKEN = os.environ["PLEX_TOKEN"]
 tv_shows_section_id = "2"
 
 dict_shows_to_watch = {
-    "American Dad!": 10,
+    "American Dad!": 30,
     "Hemlock Grove": 5,
     "Reacher": 5,
     "The Great": 3,
