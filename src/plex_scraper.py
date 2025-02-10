@@ -32,7 +32,7 @@ PLEX_SERVER = os.environ["PLEX_SERVER"]
 TOKEN = os.environ["PLEX_TOKEN"]
 
 dict_shows_to_watch = {
-    "American Dad!": 34,
+    "American Dad!": 35,
     "Reacher": 6,
     "The Great": 3,
     "Lucifer": 5,
@@ -439,7 +439,7 @@ def download_files(ls_tasks, dry_run=False):
 
 
 if __name__ == "__main__":
-    dry_run = True
+    dry_run = False
     start_time = time.time()
     ls_tasks = get_list_download_tasks()
     remove_unwanted_files(ls_tasks, dry_run=dry_run)
