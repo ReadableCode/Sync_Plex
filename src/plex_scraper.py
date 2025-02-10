@@ -104,12 +104,6 @@ def get_dest_path(source_file_path):
     return dest_path
 
 
-input = "\\\\192.168.86.31\\Media\\Movies\\Zootopia (2016)\\Zootopia (2016) - [Bluray-1080p].mp4"
-output = get_dest_path(input)
-print(input)
-print(output)
-
-
 # %%
 # Get Shows #
 
@@ -268,9 +262,6 @@ def get_ls_source_file_paths_movies():
     return ls_file_paths
 
 
-# %%
-
-
 def get_list_download_tasks():
     ls_file_paths_to_download = []
     for show_title, num_episodes in dict_shows_to_watch.items():
@@ -285,13 +276,6 @@ def get_list_download_tasks():
         ls_tasks.append((file_path, get_dest_path(file_path)))
 
     return ls_tasks
-
-
-ls_tasks = get_list_download_tasks()
-pprint_ls(ls_tasks)
-
-
-# %%
 
 
 def remove_unwanted_files(ls_tasks, dry_run=False):
@@ -338,12 +322,6 @@ def remove_unwanted_files(ls_tasks, dry_run=False):
             for dir in dirs:
                 if not os.listdir(os.path.join(root, dir)):
                     print_logger(os.path.join(root, dir))
-
-
-"""
-I:Media\TV\American Dad\American Dad! - S13E12 - The Dentist's Wife WEBDL-1080p.mkv 
-I:\Media\TV\American Dad\American Dad! - S13E12 - The Dentist's Wife WEBDL-1080p.mkv
-"""
 
 
 def download_files(ls_tasks, dry_run=False):
