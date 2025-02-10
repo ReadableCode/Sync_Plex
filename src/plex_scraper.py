@@ -280,7 +280,6 @@ def get_list_download_tasks():
 
 def remove_unwanted_files(ls_tasks, dry_run=False):
     ls_desired_files = [task[1] for task in ls_tasks]
-    pprint_ls(ls_desired_files)
     dict_files_to_delete = {}
     size_of_delete = 0
     for clean_dir in ["TV", "Movies"]:
