@@ -41,6 +41,12 @@ dict_shows_to_watch = {
     "The Boys": 5,
     "House": 5,
     "Brooklyn Nine-Nine": 8,
+    "The Good Place": 5,
+    "The Last of Us": 5,
+    "Vox Machina": 5,
+    "Arcane": 5,
+    "Breaking Bad": 5,
+    "The Witcher": 5,
 }
 
 ls_movies_to_watch = [
@@ -56,6 +62,7 @@ ls_movies_to_watch = [
     "Big Hero 6",
     "Jexi",
     "Her",
+    "Dungeaons & Dragons: Honor Among Thieves",
 ]
 
 
