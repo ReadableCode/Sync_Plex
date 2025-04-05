@@ -32,3 +32,4 @@ sheets.googleapis.com-python.json
 looker.ini
 *.egg-info/
 .venv
+config.yaml

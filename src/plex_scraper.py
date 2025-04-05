@@ -9,9 +9,10 @@ import xml.etree.ElementTree as ET
 
 import pandas as pd
 import requests
+import yaml
 from dotenv import load_dotenv
 
-from config import grandparent_dir
+from config import grandparent_dir, parent_dir  # noqa: F401
 from utils.display_tools import (  # noqa: F401
     pprint_df,
     pprint_dict,
@@ -24,7 +25,7 @@ from utils.display_tools import (  # noqa: F401
 
 
 operating_system = "Windows" if os.name == "nt" else "Linux"
-dotenv_path = os.path.join(grandparent_dir, ".env")
+dotenv_path = os.path.join(parent_dir, ".env")
 if os.path.exists(dotenv_path):
     load_dotenv(dotenv_path)
 
@@ -111,6 +112,64 @@ def get_dest_path(source_file_path):
     dest_path = os.path.join(*ls_dest_path_split)
     return dest_path
 
+
+def write_media_config(
+    dict_shows: dict[str, int],
+    list_movies: list[str],
+    library_src_path: str,
+    destination_root_path: str,
+    out_path: str = "config.yaml",
+) -> None:
+    shows = [
+        {"name": name, "num_next_episodes": seasons}
+        for name, seasons in dict_shows.items()
+    ]
+    movies = [{"name": name} for name in list_movies]
+    data = {
+        "library_src_path": library_src_path,
+        "destination_root_path": destination_root_path,
+        "shows": shows,
+        "movies": movies,
+    }
+    with open(out_path, "w") as f:
+        yaml.dump(data, f, sort_keys=False)
+
+
+def read_media_config(
+    path: str = "config.yaml",
+) -> tuple[dict[str, int], list[str], str]:
+    with open(path, "r") as f:
+        config = yaml.safe_load(f)
+    shows = {item["name"]: item["num_next_episodes"] for item in config["shows"]}
+    movies = [item["name"] for item in config["movies"]]
+    return config["library_src_path"], config["destination_root_path"], shows, movies
+
+
+# write yml
+write_media_config(
+    dict_shows=dict_shows_to_watch,
+    list_movies=ls_movies_to_watch,
+    library_src_path=get_source_root_path(),
+    destination_root_path=get_destination_root_path(),
+    out_path=os.path.join(parent_dir, "config.yaml"),
+)
+
+# read yml
+library_src_path, destination_root_path, dict_shows_to_watch, ls_movies_to_watch = (
+    read_media_config(os.path.join(parent_dir, "config.yaml"))
+)
+print_logger(
+    "Config loaded from YAML file:",
+    as_break=True,
+)
+pprint_dict(
+    {
+        "library_src_path": library_src_path,
+        "destination_root_path": destination_root_path,
+        "shows": dict_shows_to_watch,
+        "movies": ls_movies_to_watch,
+    }
+)
 
 # %%
 # Get Shows #
