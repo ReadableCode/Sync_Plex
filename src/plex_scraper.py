@@ -43,10 +43,11 @@ dict_shows_to_watch = {
     "Brooklyn Nine-Nine": 8,
     "The Good Place": 5,
     "The Last of Us": 5,
-    "Vox Machina": 5,
+    "The Legend of Vox Machina": 5,
     "Arcane": 5,
     "Breaking Bad": 5,
     "The Witcher": 5,
+    "The Apothecary Diaries": 5,
 }
 
 ls_movies_to_watch = [
