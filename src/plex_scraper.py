@@ -32,6 +32,15 @@ if os.path.exists(dotenv_path):
 PLEX_SERVER = os.environ["PLEX_SERVER"]
 TOKEN = os.environ["PLEX_TOKEN"]
 
+
+# %%
+# Configuration #
+
+config_file_check_paths = [
+    os.path.join(parent_dir, "config.yaml"),
+    os.path.join(os.path.expanduser("~"), "sync_plex", "config.yaml"),
+]
+
 dict_shows_to_watch = {
     "American Dad!": 35,
     "Reacher": 6,
@@ -92,27 +101,6 @@ def get_destination_root_path():
         raise Exception(f"Unsupported operating system: {system}")
 
 
-def get_dest_path(source_file_path):
-    dest_path = source_file_path.replace(
-        get_source_root_path(), get_destination_root_path()
-    )
-    # split to list
-    ls_dest_path_split = dest_path.split("\\")
-    # loop through list, remove item if starts with "Season "
-    for i, item in enumerate(ls_dest_path_split):
-        if item.startswith("Season "):
-            ls_dest_path_split.pop(i)
-            break
-
-    # if on windows add backslack after drive letter
-    if operating_system == "Windows":
-        ls_dest_path_split[0] = ls_dest_path_split[0] + "\\"
-
-    # join list back to string
-    dest_path = os.path.join(*ls_dest_path_split)
-    return dest_path
-
-
 def write_media_config(
     dict_shows: dict[str, int],
     list_movies: list[str],
@@ -138,6 +126,9 @@ def write_media_config(
 def read_media_config(
     path: str = "config.yaml",
 ) -> tuple[dict[str, int], list[str], str]:
+    if not os.path.exists(path):
+        raise FileNotFoundError(f"Config file {path} not found.")
+
     with open(path, "r") as f:
         config = yaml.safe_load(f)
     shows = {item["name"]: item["num_next_episodes"] for item in config["shows"]}
@@ -170,6 +161,26 @@ pprint_dict(
         "movies": ls_movies_to_watch,
     }
 )
+
+
+def get_dest_path_for_source_path(source_file_path):
+    dest_path = source_file_path.replace(library_src_path, destination_root_path)
+    # split to list
+    ls_dest_path_split = dest_path.split("\\")
+    # loop through list, remove item if starts with "Season "
+    for i, item in enumerate(ls_dest_path_split):
+        if item.startswith("Season "):
+            ls_dest_path_split.pop(i)
+            break
+
+    # if on windows add backslack after drive letter
+    if operating_system == "Windows":
+        ls_dest_path_split[0] = ls_dest_path_split[0] + "\\"
+
+    # join list back to string
+    dest_path = os.path.join(*ls_dest_path_split)
+    return dest_path
+
 
 # %%
 # Get Shows #
@@ -340,7 +351,7 @@ def get_list_download_tasks():
 
     ls_tasks = []
     for file_path in ls_file_paths_to_download:
-        ls_tasks.append((file_path, get_dest_path(file_path)))
+        ls_tasks.append((file_path, get_dest_path_for_source_path(file_path)))
 
     return ls_tasks
 
