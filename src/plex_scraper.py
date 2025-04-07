@@ -37,7 +37,7 @@ CONIFG_FILE_CHECK_PATHS = [
     os.path.join(os.path.expanduser("~"), "sync_plex", "config.yaml"),
 ]
 
-DRY_RUN = True
+DRY_RUN = False
 
 # %%
 # Configuration #
@@ -60,7 +60,7 @@ def init_config():
         "Arcane": 5,
         "Breaking Bad": 5,
         "The Witcher": 5,
-        "The Apothecary Diaries": 5,
+        "The Apothecary Diaries": 15,
     }
 
     ls_movies_to_watch = [
