@@ -24,143 +24,137 @@ from utils.display_tools import (  # noqa: F401
 # Variables #
 
 
-operating_system = "Windows" if os.name == "nt" else "Linux"
-dotenv_path = os.path.join(parent_dir, ".env")
-if os.path.exists(dotenv_path):
-    load_dotenv(dotenv_path)
+OPERATING_SYSTEM = "Windows" if os.name == "nt" else "Linux"
+DOTENV_PATH = os.path.join(parent_dir, ".env")
+if os.path.exists(DOTENV_PATH):
+    load_dotenv(DOTENV_PATH)
 
 PLEX_SERVER = os.environ["PLEX_SERVER"]
 TOKEN = os.environ["PLEX_TOKEN"]
 
-
-# %%
-# Configuration #
-
-config_file_check_paths = [
+CONIFG_FILE_CHECK_PATHS = [
     os.path.join(parent_dir, "config.yaml"),
     os.path.join(os.path.expanduser("~"), "sync_plex", "config.yaml"),
 ]
 
-dict_shows_to_watch = {
-    "American Dad!": 35,
-    "Reacher": 6,
-    "The Great": 3,
-    "Lucifer": 5,
-    "New Girl": 5,
-    "Fullmetal Alchemist: Brotherhood": 10,
-    "The Boys": 5,
-    "House": 5,
-    "Brooklyn Nine-Nine": 8,
-    "The Good Place": 5,
-    "The Last of Us": 5,
-    "The Legend of Vox Machina": 5,
-    "Arcane": 5,
-    "Breaking Bad": 5,
-    "The Witcher": 5,
-    "The Apothecary Diaries": 5,
-}
+DRY_RUN = True
 
-ls_movies_to_watch = [
-    "Zootopia",
-    "Ready Player One",
-    "Home",
-    "Twilight",
-    "Encanto",
-    "Moana",
-    "Inside Out",
-    "Frozen",
-    "Frozen II",
-    "Big Hero 6",
-    "Jexi",
-    "Her",
-    "Dungeaons & Dragons: Honor Among Thieves",
-]
+# %%
+# Configuration #
+
+
+def init_config():
+    dict_shows_to_watch = {
+        "American Dad!": 35,
+        "Reacher": 6,
+        "The Great": 3,
+        "Lucifer": 5,
+        "New Girl": 5,
+        "Fullmetal Alchemist: Brotherhood": 10,
+        "The Boys": 5,
+        "House": 5,
+        "Brooklyn Nine-Nine": 8,
+        "The Good Place": 5,
+        "The Last of Us": 5,
+        "The Legend of Vox Machina": 5,
+        "Arcane": 5,
+        "Breaking Bad": 5,
+        "The Witcher": 5,
+        "The Apothecary Diaries": 5,
+    }
+
+    ls_movies_to_watch = [
+        "Zootopia",
+        "Ready Player One",
+        "Home",
+        "Twilight",
+        "Encanto",
+        "Moana",
+        "Inside Out",
+        "Frozen",
+        "Frozen II",
+        "Big Hero 6",
+        "Jexi",
+        "Her",
+        "Dungeaons & Dragons: Honor Among Thieves",
+    ]
+
+    def get_source_root_path():
+        if OPERATING_SYSTEM == "Windows":
+            return "\\\\192.168.86.31\\Media"
+        elif OPERATING_SYSTEM == "Linux":
+            return "/mnt/192.168.86.31/Media"  # TODO fix this on a system with a mount
+        else:
+            raise Exception("Operating system not recognized")
+
+    def get_destination_root_path():
+        system = platform.system()
+
+        if system == "Windows":
+            return r"I:\Media"  # Windows destination (drive letter)
+        elif system == "Linux":
+            return "/home/jason/Downloads"  # Adjust if using a mounted storage
+        else:
+            raise Exception(f"Unsupported operating system: {system}")
+
+    def write_media_config(
+        dict_shows: dict[str, int],
+        list_movies: list[str],
+        library_src_path: str,
+        destination_root_path: str,
+        out_path: str = "config.yaml",
+    ) -> None:
+        shows = [
+            {"name": name, "num_next_episodes": seasons}
+            for name, seasons in dict_shows.items()
+        ]
+        movies = [{"name": name} for name in list_movies]
+        data = {
+            "library_src_path": library_src_path,
+            "destination_root_path": destination_root_path,
+            "shows": shows,
+            "movies": movies,
+        }
+        with open(out_path, "w") as f:
+            yaml.dump(data, f, sort_keys=False)
+
+    print_logger(
+        "Config file not found. Creating a new one.",
+        level="warning",
+    )
+    # write yml
+    write_media_config(
+        dict_shows=dict_shows_to_watch,
+        list_movies=ls_movies_to_watch,
+        library_src_path=get_source_root_path(),
+        destination_root_path=get_destination_root_path(),
+        out_path=os.path.join(parent_dir, "config.yaml"),
+    )
+
+
+def read_media_config():
+    for possible_config_path in CONIFG_FILE_CHECK_PATHS:
+        if not os.path.exists(possible_config_path):
+            continue
+
+        with open(possible_config_path, "r") as f:
+            config = yaml.safe_load(f)
+        shows = {item["name"]: item["num_next_episodes"] for item in config["shows"]}
+        movies = [item["name"] for item in config["movies"]]
+        return (
+            config["library_src_path"],
+            config["destination_root_path"],
+            shows,
+            movies,
+        )
+
+    # init at first path
+    init_config()
+    return read_media_config()
 
 
 # %%
-# Path Functions #
-
-
-def get_source_root_path():
-    if operating_system == "Windows":
-        return "\\\\192.168.86.31\\Media"
-    elif operating_system == "Linux":
-        return "/mnt/192.168.86.31/Media"  # TODO fix this on a system with a mount
-    else:
-        raise Exception("Operating system not recognized")
-
-
-def get_destination_root_path():
-    system = platform.system()
-
-    if system == "Windows":
-        return r"I:\Media"  # Windows destination (drive letter)
-    elif system == "Linux":
-        return "/home/jason/Downloads"  # Adjust if using a mounted storage
-    else:
-        raise Exception(f"Unsupported operating system: {system}")
-
-
-def write_media_config(
-    dict_shows: dict[str, int],
-    list_movies: list[str],
-    library_src_path: str,
-    destination_root_path: str,
-    out_path: str = "config.yaml",
-) -> None:
-    shows = [
-        {"name": name, "num_next_episodes": seasons}
-        for name, seasons in dict_shows.items()
-    ]
-    movies = [{"name": name} for name in list_movies]
-    data = {
-        "library_src_path": library_src_path,
-        "destination_root_path": destination_root_path,
-        "shows": shows,
-        "movies": movies,
-    }
-    with open(out_path, "w") as f:
-        yaml.dump(data, f, sort_keys=False)
-
-
-def read_media_config(
-    path: str = "config.yaml",
-) -> tuple[dict[str, int], list[str], str]:
-    if not os.path.exists(path):
-        raise FileNotFoundError(f"Config file {path} not found.")
-
-    with open(path, "r") as f:
-        config = yaml.safe_load(f)
-    shows = {item["name"]: item["num_next_episodes"] for item in config["shows"]}
-    movies = [item["name"] for item in config["movies"]]
-    return config["library_src_path"], config["destination_root_path"], shows, movies
-
-
-# write yml
-write_media_config(
-    dict_shows=dict_shows_to_watch,
-    list_movies=ls_movies_to_watch,
-    library_src_path=get_source_root_path(),
-    destination_root_path=get_destination_root_path(),
-    out_path=os.path.join(parent_dir, "config.yaml"),
-)
-
-# read yml
-library_src_path, destination_root_path, dict_shows_to_watch, ls_movies_to_watch = (
-    read_media_config(os.path.join(parent_dir, "config.yaml"))
-)
-print_logger(
-    "Config loaded from YAML file:",
-    as_break=True,
-)
-pprint_dict(
-    {
-        "library_src_path": library_src_path,
-        "destination_root_path": destination_root_path,
-        "shows": dict_shows_to_watch,
-        "movies": ls_movies_to_watch,
-    }
-)
+# Path Converter #
 
 
 def get_dest_path_for_source_path(source_file_path):
@@ -174,7 +168,7 @@ def get_dest_path_for_source_path(source_file_path):
             break
 
     # if on windows add backslack after drive letter
-    if operating_system == "Windows":
+    if OPERATING_SYSTEM == "Windows":
         ls_dest_path_split[0] = ls_dest_path_split[0] + "\\"
 
     # join list back to string
@@ -183,7 +177,7 @@ def get_dest_path_for_source_path(source_file_path):
 
 
 # %%
-# Get Shows #
+# Plex API #
 
 
 def get_dict_plex_section_numbers():
@@ -301,9 +295,7 @@ def get_ls_source_file_paths_next_x_episodes_of_show(show_title, num_episodes):
     for episode in root.findall(".//Video"):
         episode_server_path = episode.find(".//Part").get("file")
         episode_norm_path = os.path.normpath(episode_server_path)
-        episode_mapped_path = episode_norm_path.replace(
-            "\\data", get_source_root_path()
-        )
+        episode_mapped_path = episode_norm_path.replace("\\data", library_src_path)
         episode_num_views = episode.get("viewCount", 0)
 
         if episode_num_views == 0:
@@ -332,9 +324,7 @@ def get_ls_source_file_paths_movies():
         for video in root.findall(".//Video"):
             video_server_path = video.find(".//Part").get("file")
             video_norm_path = os.path.normpath(video_server_path)
-            video_mapped_path = video_norm_path.replace(
-                "\\data", get_source_root_path()
-            )
+            video_mapped_path = video_norm_path.replace("\\data", library_src_path)
             ls_file_paths.append(video_mapped_path)
 
     return ls_file_paths
@@ -362,7 +352,7 @@ def remove_unwanted_files(ls_tasks, dry_run=False):
     size_of_delete = 0
     for clean_dir in ["TV", "Movies"]:
         for root, dirs, files in os.walk(
-            os.path.join(get_destination_root_path(), clean_dir)
+            os.path.join(destination_root_path, clean_dir)
         ):
             for file in files:
                 if os.path.join(root, file) not in ls_desired_files:
@@ -387,7 +377,7 @@ def remove_unwanted_files(ls_tasks, dry_run=False):
 
     if not dry_run:
         # remove empty directories
-        for root, dirs, files in os.walk(get_destination_root_path(), topdown=False):
+        for root, dirs, files in os.walk(destination_root_path, topdown=False):
             for dir in dirs:
                 if not os.listdir(os.path.join(root, dir)):
                     os.rmdir(os.path.join(root, dir))
@@ -395,7 +385,7 @@ def remove_unwanted_files(ls_tasks, dry_run=False):
         print_logger(
             "Dry run: would remove empty directories listed below:", as_break=True
         )
-        for root, dirs, files in os.walk(get_destination_root_path(), topdown=False):
+        for root, dirs, files in os.walk(destination_root_path, topdown=False):
             for dir in dirs:
                 if not os.listdir(os.path.join(root, dir)):
                     print_logger(os.path.join(root, dir))
@@ -410,7 +400,7 @@ def download_files(ls_tasks, dry_run=False):
         size_of_copy = 0
 
     if os.path.exists(
-        os.path.join(get_destination_root_path(), "plex_downloader_target.txt")
+        os.path.join(destination_root_path, "plex_downloader_target.txt")
     ):
         print_logger("plex_downloader_target exists")
     else:
@@ -438,7 +428,7 @@ def download_files(ls_tasks, dry_run=False):
             size_of_skip += file_size
         elif dry_run:
             print_logger(
-                f"Dry run: would use {'robocopy' if operating_system == 'Windows' else 'rsync'} to copy {source_path} to {destination_dir}, size: {file_size / 1e9:.2f} GB",
+                f"Dry run: would use {'robocopy' if OPERATING_SYSTEM == 'Windows' else 'rsync'} to copy {source_path} to {destination_dir}, size: {file_size / 1e9:.2f} GB",
                 level="debug",
             )
             dict_files_to_copy[base_name] = f"{file_size / 1e9:.2f} GB"
@@ -446,7 +436,7 @@ def download_files(ls_tasks, dry_run=False):
         else:
             if not os.path.exists(destination_dir):
                 os.makedirs(destination_dir)
-            if operating_system == "Windows":
+            if OPERATING_SYSTEM == "Windows":
                 print_logger(
                     f"Using robocopy to copy {source_path} to {destination_dir}, size: {file_size / 1e9:.2f} GB"
                 )
@@ -467,7 +457,7 @@ def download_files(ls_tasks, dry_run=False):
                         level="error",
                     )
 
-            elif operating_system == "Linux":
+            elif OPERATING_SYSTEM == "Linux":
                 print_logger(
                     f"Using rsync to copy {source_path} to {destination_dir}, size: {file_size / 1e9:.2f} GB"
                 )
@@ -494,11 +484,32 @@ def download_files(ls_tasks, dry_run=False):
 
 
 if __name__ == "__main__":
-    dry_run = False
     start_time = time.time()
+
+    # read yml
+    library_src_path, destination_root_path, dict_shows_to_watch, ls_movies_to_watch = (
+        read_media_config()
+    )
+    print_logger(
+        "Config loaded from YAML file:",
+        as_break=True,
+    )
+    print_logger(
+        f"Source path: {library_src_path}",
+        level="debug",
+    )
+    print_logger(
+        f"Destination path: {destination_root_path}",
+        level="debug",
+    )
+    print("Shows to watch:")
+    pprint_dict(dict_shows_to_watch)
+    print("Movies to watch:")
+    pprint_ls(ls_movies_to_watch)
+
     ls_tasks = get_list_download_tasks()
-    remove_unwanted_files(ls_tasks, dry_run=dry_run)
-    download_files(ls_tasks, dry_run=dry_run)
+    remove_unwanted_files(ls_tasks, dry_run=DRY_RUN)
+    download_files(ls_tasks, dry_run=DRY_RUN)
     end_time = time.time()
 
     print_logger(f"Time taken: {end_time - start_time} seconds", as_break=True)
