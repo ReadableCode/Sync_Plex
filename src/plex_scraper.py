@@ -5,14 +5,18 @@ import os
 import platform
 import subprocess
 import time
-import xml.etree.ElementTree as ET
 
 import pandas as pd
-import requests
 import yaml
 from dotenv import load_dotenv
 
-from config import grandparent_dir, parent_dir  # noqa: F401
+from config import parent_dir  # noqa: F401
+from plex_api_wrapper import (
+    get_dict_plex_movie_data,
+    get_dict_plex_show_data,
+    get_episode_data_for_season_key,
+    get_seasons_data_for_show_id,
+)
 from utils.display_tools import (  # noqa: F401
     pprint_df,
     pprint_dict,
@@ -29,9 +33,6 @@ DOTENV_PATH = os.path.join(parent_dir, ".env")
 if os.path.exists(DOTENV_PATH):
     load_dotenv(DOTENV_PATH)
 
-PLEX_SERVER = os.environ["PLEX_SERVER"]
-TOKEN = os.environ["PLEX_TOKEN"]
-
 CONIFG_FILE_CHECK_PATHS = [
     os.path.join(parent_dir, "config.yaml"),
     os.path.join(os.path.expanduser("~"), "sync_plex", "config.yaml"),
@@ -43,7 +44,7 @@ DRY_RUN = False
 # Configuration #
 
 
-def init_config():
+def init_config(file_path):
     dict_shows_to_watch = {
         "American Dad!": 35,
         "Reacher": 6,
@@ -128,11 +129,11 @@ def init_config():
         list_movies=ls_movies_to_watch,
         library_src_path=get_source_root_path(),
         destination_root_path=get_destination_root_path(),
-        out_path=os.path.join(parent_dir, "config.yaml"),
+        out_path=file_path,
     )
 
 
-def read_media_config():
+def get_dict_config():
     for possible_config_path in CONIFG_FILE_CHECK_PATHS:
         if not os.path.exists(possible_config_path):
             continue
@@ -148,13 +149,20 @@ def read_media_config():
             movies,
         )
 
-    # init at first path
-    init_config()
-    return read_media_config()
+    # init at first path if no config exists
+    init_config(CONIFG_FILE_CHECK_PATHS[0])
+    return get_dict_config()
 
 
 # %%
 # Path Converter #
+
+
+def get_server_mapped_path(server_relative_path):
+    video_norm_path = os.path.normpath(server_relative_path)
+    video_mapped_path = video_norm_path.replace("\\data", library_src_path)
+
+    return video_mapped_path
 
 
 def get_dest_path_for_source_path(source_file_path):
@@ -176,307 +184,287 @@ def get_dest_path_for_source_path(source_file_path):
     return dest_path
 
 
-# %%
-# Plex API #
+def get_best_fit_media_item(ls_media_items, ls_quality_profile_pref, force_first=False):
+    for quality_profile in ls_quality_profile_pref:
+        for media_item in ls_media_items:
+            for part in media_item["Part"]:
+                quality_this_part = part.get("title", "")
+                if (
+                    quality_this_part.lower() != quality_profile.lower()
+                    and not force_first
+                ):
+                    continue
+                video_mapped_path = get_server_mapped_path(part.get("file"))
+                file_size = part.get("size", 0)
+                file_size_gb = file_size / 1e9
 
+                return video_mapped_path, file_size_gb, quality_this_part
 
-def get_dict_plex_section_numbers():
-    """
-    Get a dictionary of the plex section numbers in the format:
-    {
-        "Movies": "1",
-        "TV Shows": "2",
-        ...
-    }
-    """
-    headers = {"X-Plex-Token": TOKEN, "Accept": "application/json"}
-    response = requests.get(f"{PLEX_SERVER}/library/sections", headers=headers)
-    if response.status_code != 200:
-        return {}
-    sections_data = response.json()
-    dict_section_ids = {}
-
-    for section_data in sections_data["MediaContainer"]["Directory"]:
-        dict_section_ids[section_data["title"]] = section_data["key"]
-
-    return dict_section_ids
-
-
-def get_movies():
-    """
-    Get dicts of all movies and movies to watch in the format:
-    {
-        "Movie Title": {
-            "movie_id": "12345"
-        },
-    }
-    """
-    dict_sections = get_dict_plex_section_numbers()
-    headers = {"X-Plex-Token": TOKEN, "Accept": "application/json"}
-    response = requests.get(
-        f"{PLEX_SERVER}/library/sections/{dict_sections['Movies']}/all", headers=headers
+    return get_best_fit_media_item(
+        ls_media_items, ls_quality_profile_pref, force_first=True
     )
-    if response.status_code != 200:
-        return {}, {}
 
-    movies_data = response.json()
 
-    dict_all_movies = {}
-    dict_watch_movies = {}
+# %%
+
+
+def get_dict_plex_desired_movie_data(ls_movies_to_watch, ls_quality_profile_pref):
+    movies_data = get_dict_plex_movie_data()
+    ls_dicts_desired_movies = []
 
     for movie in movies_data["MediaContainer"]["Metadata"]:
         movie_title = movie["title"]
-        movie_id = movie["ratingKey"]
 
-        dict_all_movies.setdefault(movie_title, {})["movie_id"] = movie_id
-
+        # check if movie is desired
         for watch_movie in ls_movies_to_watch:
             if watch_movie == movie_title.split(" (")[0]:
-                dict_watch_movies.setdefault(watch_movie, {})["movie_id"] = movie_id
+                break
+        else:
+            continue
 
-    return dict_all_movies, dict_watch_movies
+        dict_this_movie = {}
+        dict_this_movie["media_type"] = "movie"
+
+        dict_this_movie["title"] = movie_title
+        dict_this_movie["view_count"] = movie.get("viewCount", 0)
+
+        (
+            dict_this_movie["server_path"],
+            dict_this_movie["server_file_size_gb"],
+            dict_this_movie["quality_this_part"],
+        ) = get_best_fit_media_item(movie["Media"], ls_quality_profile_pref)
+
+        dict_this_movie["dest_path"] = get_dest_path_for_source_path(
+            dict_this_movie["server_path"]
+        )
+
+        ls_dicts_desired_movies.append(dict_this_movie)
+
+    return ls_dicts_desired_movies
 
 
-def get_shows():
-    """
-    Get dicts of all shows and shows to watch in the format:
-    {
-        "Show Title": {
-            "show_id": "12345"
-        },
-    }
-    """
-    dict_sections = get_dict_plex_section_numbers()
-    headers = {"X-Plex-Token": TOKEN, "Accept": "application/json"}
-    response = requests.get(
-        f"{PLEX_SERVER}/library/sections/{dict_sections['TV Shows']}/all",
-        headers=headers,
-    )
-    if response.status_code != 200:
-        return {}, {}
+def get_dict_plex_desired_show_data(dict_shows_to_watch, ls_quality_profile_pref):
+    shows_data = get_dict_plex_show_data()
 
-    shows_data = response.json()
-
-    dict_all_shows = {}
-    dict_watch_shows = {}
+    ls_dict_desired_shows = []
 
     for show in shows_data["MediaContainer"]["Metadata"]:
         show_title = show["title"]
+        # check if show is desired
+        if show_title not in dict_shows_to_watch.keys():
+            continue
+
+        num_episodes_of_show = dict_shows_to_watch[show_title]
+        num_episodes_added = 0
+        flag_have_enough_of_show = False
+
         show_id = show["ratingKey"]
 
-        dict_all_shows.setdefault(show_title, {})["show_id"] = show_id
+        # get children from api
+        all_seasons_data = get_seasons_data_for_show_id(show_id)
 
-        for watch_show in dict_shows_to_watch.keys():
-            if watch_show == show_title:
-                dict_watch_shows.setdefault(watch_show, {})["show_id"] = show_id
+        for season_data in all_seasons_data:
+            if flag_have_enough_of_show:
+                break
+            seasons_key = season_data["ratingKey"]
 
-    return dict_all_shows, dict_watch_shows
+            # get episodes from api
+            all_episodes_data_this_season = get_episode_data_for_season_key(seasons_key)
+
+            for episode_data in all_episodes_data_this_season:
+                episode_title = episode_data["title"]
+                view_count = episode_data.get("viewCount", 0)
+                # if watched, then skip
+                if view_count > 0:
+                    continue
+
+                dict_this_episode = {}
+
+                dict_this_episode["media_type"] = "show"
+
+                (
+                    dict_this_episode["server_path"],
+                    dict_this_episode["server_file_size_gb"],
+                    dict_this_episode["quality_this_part"],
+                ) = get_best_fit_media_item(
+                    episode_data["Media"], ls_quality_profile_pref
+                )
+
+                dict_this_episode["title"] = show_title
+                dict_this_episode["season"] = season_data["title"]
+                dict_this_episode["episode_number"] = episode_data["index"]
+                dict_this_episode["episode_title"] = episode_title
+                dict_this_episode["view_count"] = view_count
+                dict_this_episode["dest_path"] = get_dest_path_for_source_path(
+                    dict_this_episode["server_path"]
+                )
+
+                if num_episodes_added == num_episodes_of_show:
+                    flag_have_enough_of_show = True
+                    break
+                num_episodes_added += 1
+
+                ls_dict_desired_shows.append(dict_this_episode)
+
+    return ls_dict_desired_shows
+
+
+def get_list_dicts_desired_files(
+    ls_movies_to_watch, dict_shows_to_watch, ls_quality_profile_pref
+):
+    ls_dicts_desired_movies = get_dict_plex_desired_movie_data(
+        ls_movies_to_watch, ls_quality_profile_pref
+    )
+    ls_dicts_desired_shows = get_dict_plex_desired_show_data(
+        dict_shows_to_watch, ls_quality_profile_pref
+    )
+
+    # combine lists
+    ls_dicts_desired_files = ls_dicts_desired_movies + ls_dicts_desired_shows
+
+    return ls_dicts_desired_files
+
+
+def get_ls_dicts_existing_files(destination_root_path):
+    ls_dicts_existing_files = []
+    size_of_existing_files = 0
+    for clean_dir in ["TV", "Movies"]:
+        for root, dirs, files in os.walk(
+            os.path.join(destination_root_path, clean_dir)
+        ):
+            for file in files:
+                file_path = os.path.join(root, file)
+                file_size = os.path.getsize(file_path)
+                size_of_existing_files += file_size
+                ls_dicts_existing_files.append(
+                    {
+                        "dest_path": file_path,
+                        "dest_file_size_gb": file_size / 1e9,
+                    }
+                )
+
+    return ls_dicts_existing_files, size_of_existing_files
 
 
 # %%
 # Imports #
 
 
-def get_ls_source_file_paths_next_x_episodes_of_show(show_title, num_episodes):
-    """
-    Get the source file paths of the next x episodes of a show located on the plex server
-    """
-    _, dict_watch_shows = get_shows()
-
-    show_id = dict_watch_shows[show_title]["show_id"]
-    response = requests.get(
-        f"{PLEX_SERVER}/library/metadata/{show_id}/allLeaves",
-        params={"X-Plex-Token": TOKEN},
+def print_status(df_actions, current_task=""):
+    os.system("cls" if OPERATING_SYSTEM == "Windows" else "clear")
+    print("=" * 150)
+    print(f"Status: {current_task}")
+    print("=" * 150)
+    pprint_df(
+        df_actions[
+            [
+                "status",
+                "media_type",
+                "title",
+                "season",
+                "episode_number",
+                "episode_title",  # reenable
+                "sync_state",
+                "size_diff_gb",
+                "server_file_size_gb",
+                "dest_file_size_gb",
+                # "server_path",
+                "dest_path",
+                # "view_count",
+                # "quality_this_part",
+            ]
+        ]
     )
 
-    root = ET.fromstring(response.content)
+    # print sum of filed to delete, sum of filed to download sizes
+    size_of_filed_deleted = df_actions[
+        (df_actions["sync_state"] == "should delete")
+        & (df_actions["status"] == "deleted")
+    ]["dest_file_size_gb"].sum()
+    size_of_files_total_to_delete = df_actions[
+        df_actions["sync_state"] == "should delete"
+    ]["dest_file_size_gb"].sum()
 
-    ls_file_paths = []
-    for episode in root.findall(".//Video"):
-        episode_server_path = episode.find(".//Part").get("file")
-        episode_norm_path = os.path.normpath(episode_server_path)
-        episode_mapped_path = episode_norm_path.replace("\\data", library_src_path)
-        episode_num_views = episode.get("viewCount", 0)
+    num_filed_deleted = df_actions[
+        (df_actions["sync_state"] == "should delete")
+        & (df_actions["status"] == "deleted")
+    ].shape[0]
+    num_files_total_to_delete = df_actions[
+        df_actions["sync_state"] == "should delete"
+    ].shape[0]
 
-        if episode_num_views == 0:
-            ls_file_paths.append(episode_mapped_path)
-            if len(ls_file_paths) == num_episodes:
-                break
+    size_of_filed_downloaded = df_actions[
+        (df_actions["sync_state"] == "need download")
+        & (df_actions["status"] == "downloaded")
+    ]["server_file_size_gb"].sum()
+    size_of_files_total_to_download = df_actions[
+        df_actions["sync_state"] == "need download"
+    ]["server_file_size_gb"].sum()
 
-    return ls_file_paths
+    numn_files_downloaded = df_actions[
+        (df_actions["sync_state"] == "need download")
+        & (df_actions["status"] == "downloaded")
+    ].shape[0]
+    num_files_total_to_download = df_actions[
+        df_actions["sync_state"] == "need download"
+    ].shape[0]
+
+    # print a tool bar at the bottom showing status of all
+    print("=" * 150)
+    print(
+        f"File deletion: {num_filed_deleted}/{num_files_total_to_delete}, size: {size_of_filed_deleted:.2f} GB/{size_of_files_total_to_delete:.2f} GB ----- File downloads: {numn_files_downloaded}/{num_files_total_to_download}, size: {size_of_filed_downloaded:.2f} GB/{size_of_files_total_to_download:.2f} GB"
+    )
+    print("=" * 150)
 
 
-def get_ls_source_file_paths_movies():
-    """
-    Get the source file paths of the movies located on the plex server
-    """
-    _, dict_watch_movies = get_movies()
-
-    ls_file_paths = []
-    for movie in dict_watch_movies.keys():
-        movie_id = dict_watch_movies[movie]["movie_id"]
-        response = requests.get(
-            f"{PLEX_SERVER}/library/metadata/{movie_id}",
-            params={"X-Plex-Token": TOKEN},
+def copy_file(src_path, dest_path):
+    if not os.path.exists(dest_path):
+        os.makedirs(os.path.dirname(dest_path), exist_ok=True)
+    if OPERATING_SYSTEM == "Windows":
+        result = subprocess.run(
+            [
+                "robocopy",
+                os.path.dirname(src_path),
+                os.path.dirname(dest_path),
+                os.path.basename(src_path),
+            ],
+            capture_output=True,  # Capture the output of the command
+            text=True,  # Return the output as a string (Python 3.7+)
         )
-
-        root = ET.fromstring(response.content)
-        for video in root.findall(".//Video"):
-            video_server_path = video.find(".//Part").get("file")
-            video_norm_path = os.path.normpath(video_server_path)
-            video_mapped_path = video_norm_path.replace("\\data", library_src_path)
-            ls_file_paths.append(video_mapped_path)
-
-    return ls_file_paths
-
-
-def get_list_download_tasks():
-    ls_file_paths_to_download = []
-    for show_title, num_episodes in dict_shows_to_watch.items():
-        ls_file_paths_this_show = get_ls_source_file_paths_next_x_episodes_of_show(
-            show_title, num_episodes
-        )
-        ls_file_paths_to_download.extend(ls_file_paths_this_show)
-    ls_file_paths_to_download.extend(get_ls_source_file_paths_movies())
-
-    ls_tasks = []
-    for file_path in ls_file_paths_to_download:
-        ls_tasks.append((file_path, get_dest_path_for_source_path(file_path)))
-
-    return ls_tasks
-
-
-def remove_unwanted_files(ls_tasks, dry_run=False):
-    ls_desired_files = [task[1] for task in ls_tasks]
-    dict_files_to_delete = {}
-    size_of_delete = 0
-    for clean_dir in ["TV", "Movies"]:
-        for root, dirs, files in os.walk(
-            os.path.join(destination_root_path, clean_dir)
-        ):
-            for file in files:
-                if os.path.join(root, file) not in ls_desired_files:
-                    print(f"Unwanted file: {os.path.join(root, file)}")
-                    dict_files_to_delete[f"{file}"] = (
-                        f"{os.path.getsize(os.path.join(root, file)) / 1e9:.2f} GB"
-                    )
-                    size_of_delete += os.path.getsize(os.path.join(root, file))
-                    if not dry_run:
-                        os.remove(os.path.join(root, file))
-    if dry_run:
-        print_logger("Unwanted Files:", as_break=True)
-        pprint_df(
-            pd.DataFrame.from_dict(
-                dict_files_to_delete, orient="index", columns=["Size"]
-            )
-            .reset_index()
-            .rename(columns={"index": "File"})
-        )
-        print_logger(f"Files to delete: {len(dict_files_to_delete)}")
-        print_logger(f"Size of files to delete: {size_of_delete / 1e9:.2f} GB")
-
-    if not dry_run:
-        # remove empty directories
-        for root, dirs, files in os.walk(destination_root_path, topdown=False):
-            for dir in dirs:
-                if not os.listdir(os.path.join(root, dir)):
-                    os.rmdir(os.path.join(root, dir))
-    else:
-        print_logger(
-            "Dry run: would remove empty directories listed below:", as_break=True
-        )
-        for root, dirs, files in os.walk(destination_root_path, topdown=False):
-            for dir in dirs:
-                if not os.listdir(os.path.join(root, dir)):
-                    print_logger(os.path.join(root, dir))
-
-
-def download_files(ls_tasks, dry_run=False):
-    ls_files_to_skip = []
-    size_of_skip = 0
-    # if dry run, initilize ls files to copy, ls_files to skip, size of copy, and size of skip
-    if dry_run:
-        dict_files_to_copy = {}
-        size_of_copy = 0
-
-    if os.path.exists(
-        os.path.join(destination_root_path, "plex_downloader_target.txt")
-    ):
-        print_logger("plex_downloader_target exists")
-    else:
-        print_logger("target location doesnt exist", level="error")
-        raise Exception("Target location doesnt exist")
-
-    for task in ls_tasks:
-        source_path = task[0]
-        destination_file = task[1]
-        destination_dir = os.path.dirname(destination_file)
-        file_size = os.path.getsize(source_path)
-        base_name = os.path.basename(source_path)
-
-        if not os.path.exists(source_path):
-            print_logger(f"Source path {source_path} does not exist")
-            continue
-
-        file_already_present = os.path.exists(destination_file)
-        if file_already_present:
+        success = result.returncode == 1
+        if not success:
             print_logger(
-                f"File {os.path.basename(destination_file)} already present, skipping, source size: {file_size / 1e9:.2f} GB",
-                level="debug",
+                f"Error copying file {src_path} to {dest_path}, error: {result}",
+                level="error",
             )
-            ls_files_to_skip.append(base_name)
-            size_of_skip += file_size
-        elif dry_run:
-            print_logger(
-                f"Dry run: would use {'robocopy' if OPERATING_SYSTEM == 'Windows' else 'rsync'} to copy {source_path} to {destination_dir}, size: {file_size / 1e9:.2f} GB",
-                level="debug",
-            )
-            dict_files_to_copy[base_name] = f"{file_size / 1e9:.2f} GB"
-            size_of_copy += file_size
-        else:
-            if not os.path.exists(destination_dir):
-                os.makedirs(destination_dir)
-            if OPERATING_SYSTEM == "Windows":
-                print_logger(
-                    f"Using robocopy to copy {source_path} to {destination_dir}, size: {file_size / 1e9:.2f} GB"
-                )
-                result = subprocess.run(
-                    [
-                        "robocopy",
-                        os.path.dirname(source_path),
-                        destination_dir,
-                        base_name,
-                    ],
-                    capture_output=True,  # Capture the output of the command
-                    text=True,  # Return the output as a string (Python 3.7+)
-                )
-                success = result.returncode == 1
-                if not success:
-                    print_logger(
-                        f"Error copying file {source_path} to {destination_dir}, size: {file_size / 1e9:.2f} GB, error: {result}",
-                        level="error",
-                    )
+    elif OPERATING_SYSTEM == "Linux":
+        print_logger(f"Using rsync to copy {src_path} to {dest_path}")
+        subprocess.run(["rsync", "-av", src_path, dest_path])
+    else:
+        raise Exception("Operating system not recognized")
 
-            elif OPERATING_SYSTEM == "Linux":
-                print_logger(
-                    f"Using rsync to copy {source_path} to {destination_dir}, size: {file_size / 1e9:.2f} GB"
-                )
-                subprocess.run(["rsync", "-av", source_path, destination_dir])
-            else:
-                raise Exception("Operating system not recognized")
 
-    if dry_run:
-        print_logger("Dry Run Summary:", as_break=True)
-        print_logger("Files to copy:")
-        pprint_df(
-            pd.DataFrame.from_dict(dict_files_to_copy, orient="index", columns=["Size"])
-            .reset_index()
-            .rename(columns={"index": "File"})
-        )
-        print_logger(f"Files to copy: {len(dict_files_to_copy)}")
-        print_logger(f"Size of files to copy: {size_of_copy / 1e9:.2f} GB")
-        print_logger(f"Files to skip: {len(ls_files_to_skip)}")
-        print_logger(f"Size of files to skip: {size_of_skip / 1e9:.2f} GB")
+def apply_sync(df_actions):
+    print_status(df_actions, "Beginning sync")
+    for index, row in df_actions.iterrows():
+        if row["sync_state"] == "should delete":
+            df_actions.at[index, "status"] = "deleting"
+            print_status(df_actions, "Deleting")
+
+            os.remove(row["dest_path"])
+
+            df_actions.at[index, "status"] = "deleted"
+            print_status(df_actions, "Done deleting")
+
+    for index, row in df_actions.iterrows():
+        if row["sync_state"] == "need download":
+            df_actions.at[index, "status"] = "downloading"
+            print_status(df_actions, "Downloading")
+
+            copy_file(row["server_path"], row["dest_path"])
+
+            df_actions.at[index, "status"] = "downloaded"
+            print_status(df_actions, "Done downloading")
 
 
 # %%
@@ -486,33 +474,102 @@ def download_files(ls_tasks, dry_run=False):
 if __name__ == "__main__":
     start_time = time.time()
 
-    # read yml
+    ls_quality_profile_pref = [
+        "original",
+        "optimized for mobile",
+    ]  # TODO add this to config
+
     library_src_path, destination_root_path, dict_shows_to_watch, ls_movies_to_watch = (
-        read_media_config()
+        get_dict_config()
     )
-    print_logger(
-        "Config loaded from YAML file:",
-        as_break=True,
-    )
-    print_logger(
-        f"Source path: {library_src_path}",
-        level="debug",
-    )
-    print_logger(
-        f"Destination path: {destination_root_path}",
-        level="debug",
-    )
-    print("Shows to watch:")
-    pprint_dict(dict_shows_to_watch)
-    print("Movies to watch:")
-    pprint_ls(ls_movies_to_watch)
 
-    ls_tasks = get_list_download_tasks()
-    remove_unwanted_files(ls_tasks, dry_run=DRY_RUN)
-    download_files(ls_tasks, dry_run=DRY_RUN)
-    end_time = time.time()
+    ls_dicts_desired_files = get_list_dicts_desired_files(
+        ls_movies_to_watch,
+        dict_shows_to_watch,
+        ls_quality_profile_pref,
+    )
 
-    print_logger(f"Time taken: {end_time - start_time} seconds", as_break=True)
+    ls_dicts_existing_files, size_of_existing_files = get_ls_dicts_existing_files(
+        destination_root_path
+    )
+
+    # convert both to dataframes and merge on dest path
+    df_desired_files = pd.DataFrame(ls_dicts_desired_files)
+    df_existing_files = pd.DataFrame(ls_dicts_existing_files)
+
+    df_merged = pd.merge(
+        df_desired_files,
+        df_existing_files,
+        on="dest_path",
+        how="outer",
+        indicator="sync_state",
+    )
+    # change indicator to string
+    df_merged["sync_state"] = df_merged["sync_state"].astype(str)
+
+    # replace indicator with state
+    df_merged["sync_state"] = df_merged["sync_state"].replace(
+        {"both": "synced", "left_only": "need download", "right_only": "should delete"}
+    )
+
+    # size diff
+    df_merged["size_diff_gb"] = df_merged["server_file_size_gb"].astype(
+        float
+    ) - df_merged["dest_file_size_gb"].astype(float)
+
+    df_merged = df_merged[
+        [
+            "media_type",
+            "title",
+            "season",
+            "episode_number",
+            "episode_title",
+            "sync_state",
+            "size_diff_gb",
+            "server_file_size_gb",
+            "dest_file_size_gb",
+            "server_path",
+            "dest_path",
+            "view_count",
+            "quality_this_part",
+        ]
+    ]
+
+    for column_name in ["season", "episode_number", "episode_title"]:
+        df_merged[column_name] = df_merged[column_name].fillna("")
+        df_merged[column_name] = (
+            df_merged[column_name]
+            .astype(str)
+            .str.replace(".00", "")
+            .str.replace(".0", "")
+        )
+
+    df_actions = df_merged.copy()
+    df_actions.loc[df_actions["sync_state"] == "synced", "status"] = "synced"
+    # filter to non synced
+    df_actions = df_actions[df_actions["status"] != "synced"]
+
+    df_actions["status"] = "pending"
+    print_status(df_actions, "User Confirmation")
+
+    user_string = input(
+        "Type 'sync' to start the download process, or 'exit' to exit: "
+    )
+    if user_string.lower() == "exit":
+        print_logger("Exiting...")
+        exit()
+    elif user_string.lower() != "sync":
+        print_logger(
+            "Invalid input. Exiting...",
+            level="error",
+        )
+        exit()
+    else:
+        print_logger("Starting sync process...")
+
+    apply_sync(df_actions)
+
+    print_logger(f"Time taken: {time.time() - start_time:.2f} seconds")
 
 
 # %%
