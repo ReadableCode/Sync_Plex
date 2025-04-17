@@ -80,6 +80,11 @@ def init_config(file_path):
         "Dungeaons & Dragons: Honor Among Thieves",
     ]
 
+    ls_quality_profile_pref = [
+        "original",
+        "optimized for mobile",
+    ]
+
     def get_source_root_path():
         if OPERATING_SYSTEM == "Windows":
             return "\\\\192.168.86.31\\Media"
@@ -106,16 +111,21 @@ def init_config(file_path):
         out_path: str = "config.yaml",
     ) -> None:
         shows = [
-            {"name": name, "num_next_episodes": seasons}
-            for name, seasons in dict_shows.items()
+            {"name": name, "num_next_episodes": num_next_episodes}
+            for name, num_next_episodes in dict_shows.items()
         ]
         movies = [{"name": name} for name in list_movies]
+        quality_profile_pres = [
+            {"quality_profile": name} for name in ls_quality_profile_pref
+        ]
         data = {
             "library_src_path": library_src_path,
             "destination_root_path": destination_root_path,
             "shows": shows,
             "movies": movies,
+            "quality_profile_pref": quality_profile_pres,
         }
+
         with open(out_path, "w") as f:
             yaml.dump(data, f, sort_keys=False)
 
@@ -142,9 +152,18 @@ def get_dict_config():
             config = yaml.safe_load(f)
         shows = {item["name"]: item["num_next_episodes"] for item in config["shows"]}
         movies = [item["name"] for item in config["movies"]]
+        if "quality_profile_pref" not in config:
+            config["quality_profile_pref"] = [
+                {"quality_profile": "original"},
+                {"quality_profile": "optimized for mobile"},
+            ]
+        ls_quality_profile_pref = [
+            item["quality_profile"] for item in config["quality_profile_pref"]
+        ]
         return (
             config["library_src_path"],
             config["destination_root_path"],
+            ls_quality_profile_pref,
             shows,
             movies,
         )
@@ -474,14 +493,13 @@ def apply_sync(df_actions):
 if __name__ == "__main__":
     start_time = time.time()
 
-    ls_quality_profile_pref = [
-        "original",
-        "optimized for mobile",
-    ]  # TODO add this to config
-
-    library_src_path, destination_root_path, dict_shows_to_watch, ls_movies_to_watch = (
-        get_dict_config()
-    )
+    (
+        library_src_path,
+        destination_root_path,
+        ls_quality_profile_pref,
+        dict_shows_to_watch,
+        ls_movies_to_watch,
+    ) = get_dict_config()
 
     ls_dicts_desired_files = get_list_dicts_desired_files(
         ls_movies_to_watch,
