@@ -38,7 +38,6 @@ CONIFG_FILE_CHECK_PATHS = [
     os.path.join(os.path.expanduser("~"), "sync_plex", "config.yaml"),
 ]
 
-DRY_RUN = False
 
 # %%
 # Configuration #
