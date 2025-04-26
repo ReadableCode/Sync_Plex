@@ -140,7 +140,7 @@ def init_config(file_path):
 
 
 def get_dict_config(destination_root_path):
-    config_path=os.path.join(destination_root_path, "config.yaml")
+    config_path = os.path.join(destination_root_path, "config.yaml")
     if not os.path.exists(config_path):
         user_input = input(
             f"Config file not found at {config_path}. Do you want to create a new one? (y/n): "
@@ -161,8 +161,17 @@ def get_dict_config(destination_root_path):
     )
     with open(config_path, "r") as f:
         config = yaml.safe_load(f)
-    shows = {item["name"]: item["num_next_episodes"] for item in config["shows"]}
+
+    # shows = {item["name"]: item["num_next_episodes"] for item in config["shows"]}
+    shows = {}
+    for item in config["shows"]:
+        shows[item["name"]] = {
+            "num_next_episodes": item["num_next_episodes"],
+            "only_get_unwatched": item.get("only_get_unwatched", True),
+        }
+
     movies = [item["name"] for item in config["movies"]]
+
     if "quality_profile_pref" not in config:
         config["quality_profile_pref"] = [
             {"quality_profile": "original"},
@@ -177,8 +186,6 @@ def get_dict_config(destination_root_path):
         shows,
         movies,
     )
-
-
 
 
 # %%
@@ -281,7 +288,10 @@ def get_dict_plex_desired_show_data(dict_shows_to_watch, ls_quality_profile_pref
         if show_title not in dict_shows_to_watch.keys():
             continue
 
-        num_episodes_of_show = dict_shows_to_watch[show_title]
+        num_episodes_of_show = dict_shows_to_watch[show_title]["num_next_episodes"]
+        only_get_unwatched = dict_shows_to_watch[show_title].get(
+            "only_get_unwatched", True
+        )
         num_episodes_added = 0
         flag_have_enough_of_show = False
 
@@ -302,7 +312,7 @@ def get_dict_plex_desired_show_data(dict_shows_to_watch, ls_quality_profile_pref
                 episode_title = episode_data["title"]
                 view_count = episode_data.get("viewCount", 0)
                 # if watched, then skip
-                if view_count > 0:
+                if view_count > 0 and only_get_unwatched:
                     continue
 
                 dict_this_episode = {}
@@ -529,6 +539,37 @@ if __name__ == "__main__":
         dict_shows_to_watch,
         ls_movies_to_watch,
     ) = get_dict_config(destination_root_path)
+
+    print_logger(
+        f"Library source path: {library_src_path}",
+    )
+    print_logger(
+        f"Destination root path: {destination_root_path}",
+    )
+    print_logger(
+        f"Quality profile preferences:",
+    )
+    pprint_ls(
+        ls_quality_profile_pref,
+    )
+    print_logger(
+        f"Shows to watch:",
+    )
+    pprint_dict(
+        dict_shows_to_watch,
+    )
+    print_logger(
+        f"Movies to watch:",
+    )
+    pprint_dict(
+        ls_movies_to_watch,
+    )
+
+    if input("Do you want to continue? (y/n): ").lower() != "y":
+        print_logger(
+            "Exiting...",
+        )
+        exit()
 
     ls_dicts_desired_files = get_list_dicts_desired_files(
         ls_movies_to_watch,
