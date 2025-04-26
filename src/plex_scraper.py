@@ -144,7 +144,7 @@ def init_config(file_path):
     )
 
 
-def get_dict_config():
+def get_dict_config(destination_root_path):
     for possible_config_path in CONIFG_FILE_CHECK_PATHS:
         if not os.path.exists(possible_config_path):
             continue
@@ -163,7 +163,6 @@ def get_dict_config():
         ]
         return (
             config["library_src_path"],
-            config["destination_root_path"],
             ls_quality_profile_pref,
             shows,
             movies,
@@ -171,7 +170,7 @@ def get_dict_config():
 
     # init at first path if no config exists
     init_config(CONIFG_FILE_CHECK_PATHS[0])
-    return get_dict_config()
+    return get_dict_config(destination_root_path)
 
 
 # %%
@@ -511,11 +510,10 @@ if __name__ == "__main__":
 
     (
         library_src_path,
-        _,
         ls_quality_profile_pref,
         dict_shows_to_watch,
         ls_movies_to_watch,
-    ) = get_dict_config()
+    ) = get_dict_config(destination_root_path)
 
     ls_dicts_desired_files = get_list_dicts_desired_files(
         ls_movies_to_watch,
