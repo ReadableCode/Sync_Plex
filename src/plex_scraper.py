@@ -1,9 +1,11 @@
 # %%
 # Imports #
 
+import argparse
 import os
 import platform
 import subprocess
+import sys
 import time
 
 import pandas as pd
@@ -491,10 +493,25 @@ def apply_sync(df_actions):
 
 if __name__ == "__main__":
     start_time = time.time()
+    destination_root_path = ""
+    if "ipykernel" in sys.argv[0]:
+        print("Running in IPython kernel")
+    else:
+        parser = argparse.ArgumentParser(description="Sync media to folder.")
+        parser.add_argument(
+            "path", type=str, help="Folder path to pull config and sync"
+        )
+
+        args = parser.parse_args()
+
+        if args.path:
+            destination_root_path = os.path.abspath(args.path)
+
+    print("Path to sync:", destination_root_path)
 
     (
         library_src_path,
-        destination_root_path,
+        _,
         ls_quality_profile_pref,
         dict_shows_to_watch,
         ls_movies_to_watch,
