@@ -35,11 +35,6 @@ DOTENV_PATH = os.path.join(parent_dir, ".env")
 if os.path.exists(DOTENV_PATH):
     load_dotenv(DOTENV_PATH)
 
-CONIFG_FILE_CHECK_PATHS = [
-    os.path.join(parent_dir, "config.yaml"),
-    os.path.join(os.path.expanduser("~"), "sync_plex", "config.yaml"),
-]
-
 
 # %%
 # Configuration #
@@ -145,32 +140,45 @@ def init_config(file_path):
 
 
 def get_dict_config(destination_root_path):
-    for possible_config_path in CONIFG_FILE_CHECK_PATHS:
-        if not os.path.exists(possible_config_path):
-            continue
-
-        with open(possible_config_path, "r") as f:
-            config = yaml.safe_load(f)
-        shows = {item["name"]: item["num_next_episodes"] for item in config["shows"]}
-        movies = [item["name"] for item in config["movies"]]
-        if "quality_profile_pref" not in config:
-            config["quality_profile_pref"] = [
-                {"quality_profile": "original"},
-                {"quality_profile": "optimized for mobile"},
-            ]
-        ls_quality_profile_pref = [
-            item["quality_profile"] for item in config["quality_profile_pref"]
-        ]
-        return (
-            config["library_src_path"],
-            ls_quality_profile_pref,
-            shows,
-            movies,
+    config_path=os.path.join(destination_root_path, "config.yaml")
+    if not os.path.exists(config_path):
+        user_input = input(
+            f"Config file not found at {config_path}. Do you want to create a new one? (y/n): "
         )
+        if user_input.lower() != "y":
+            print_logger(
+                "Exiting...",
+                level="error",
+            )
+            exit()
+        # init at first path if no config exists
+        init_config(config_path)
+        return get_dict_config(config_path)
 
-    # init at first path if no config exists
-    init_config(CONIFG_FILE_CHECK_PATHS[0])
-    return get_dict_config(destination_root_path)
+    print_logger(
+        f"Config file found at {config_path}",
+        level="info",
+    )
+    with open(config_path, "r") as f:
+        config = yaml.safe_load(f)
+    shows = {item["name"]: item["num_next_episodes"] for item in config["shows"]}
+    movies = [item["name"] for item in config["movies"]]
+    if "quality_profile_pref" not in config:
+        config["quality_profile_pref"] = [
+            {"quality_profile": "original"},
+            {"quality_profile": "optimized for mobile"},
+        ]
+    ls_quality_profile_pref = [
+        item["quality_profile"] for item in config["quality_profile_pref"]
+    ]
+    return (
+        config["library_src_path"],
+        ls_quality_profile_pref,
+        shows,
+        movies,
+    )
+
+
 
 
 # %%
@@ -389,7 +397,7 @@ def print_status(df_actions, current_task=""):
                 "title",
                 "season",
                 "episode_number",
-                "episode_title",  # reenable
+                # "episode_title",
                 "sync_state",
                 "size_diff_gb",
                 "server_file_size_gb",
