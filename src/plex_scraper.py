@@ -370,6 +370,13 @@ def get_ls_dicts_existing_files(destination_root_path):
 
 
 def print_status(df_actions, current_task=""):
+    df_actions = df_actions.copy()
+
+    # make dest path shorter
+    df_actions["dest_path"] = df_actions["dest_path"].apply(
+        lambda x: os.path.basename(x)
+    )
+
     os.system("cls" if OPERATING_SYSTEM == "Windows" else "clear")
     print("=" * 150)
     print(f"Status: {current_task}")
