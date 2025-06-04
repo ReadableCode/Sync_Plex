@@ -73,7 +73,7 @@ def init_config(file_path):
         "Big Hero 6",
         "Jexi",
         "Her",
-        "Dungeaons & Dragons: Honor Among Thieves",
+        "Dungeons & Dragons: Honor Among Thieves",
     ]
 
     ls_quality_profile_pref = [
