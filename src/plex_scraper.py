@@ -244,23 +244,21 @@ def get_best_fit_media_item(ls_media_items, ls_quality_profile_pref, force_first
 
 def get_dict_plex_desired_movie_data(ls_movies_to_watch, ls_quality_profile_pref):
     movies_data = get_dict_plex_movie_data()
+    plex_movies = {
+        m["title"].split(" (")[0]: m for m in movies_data["MediaContainer"]["Metadata"]
+    }
     ls_dicts_desired_movies = []
 
-    for movie in movies_data["MediaContainer"]["Metadata"]:
-        movie_title = movie["title"]
+    for desired_title in ls_movies_to_watch:
+        if desired_title not in plex_movies:
+            raise ValueError(f"Desired movie not found in Plex: '{desired_title}'")
 
-        # check if movie is desired
-        for watch_movie in ls_movies_to_watch:
-            if watch_movie == movie_title.split(" (")[0]:
-                break
-        else:
-            continue
-
-        dict_this_movie = {}
-        dict_this_movie["media_type"] = "movie"
-
-        dict_this_movie["title"] = movie_title
-        dict_this_movie["view_count"] = movie.get("viewCount", 0)
+        movie = plex_movies[desired_title]
+        dict_this_movie = {
+            "media_type": "movie",
+            "title": movie["title"],
+            "view_count": movie.get("viewCount", 0),
+        }
 
         (
             dict_this_movie["server_path"],
@@ -279,15 +277,16 @@ def get_dict_plex_desired_movie_data(ls_movies_to_watch, ls_quality_profile_pref
 
 def get_dict_plex_desired_show_data(dict_shows_to_watch, ls_quality_profile_pref):
     shows_data = get_dict_plex_show_data()
-
+    found_titles = set()
     ls_dict_desired_shows = []
 
     for show in shows_data["MediaContainer"]["Metadata"]:
         show_title = show["title"]
         # check if show is desired
-        if show_title not in dict_shows_to_watch.keys():
+        if show_title not in dict_shows_to_watch:
             continue
 
+        found_titles.add(show_title)
         num_episodes_of_show = dict_shows_to_watch[show_title]["num_next_episodes"]
         only_get_unwatched = dict_shows_to_watch[show_title].get(
             "only_get_unwatched", True
@@ -309,15 +308,17 @@ def get_dict_plex_desired_show_data(dict_shows_to_watch, ls_quality_profile_pref
             all_episodes_data_this_season = get_episode_data_for_season_key(seasons_key)
 
             for episode_data in all_episodes_data_this_season:
-                episode_title = episode_data["title"]
-                view_count = episode_data.get("viewCount", 0)
-                # if watched, then skip
-                if view_count > 0 and only_get_unwatched:
+                if episode_data.get("viewCount", 0) > 0 and only_get_unwatched:
                     continue
 
-                dict_this_episode = {}
-
-                dict_this_episode["media_type"] = "show"
+                dict_this_episode = {
+                    "media_type": "show",
+                    "title": show_title,
+                    "season": season_data["title"],
+                    "episode_number": episode_data["index"],
+                    "episode_title": episode_data["title"],
+                    "view_count": episode_data.get("viewCount", 0),
+                }
 
                 (
                     dict_this_episode["server_path"],
@@ -327,21 +328,22 @@ def get_dict_plex_desired_show_data(dict_shows_to_watch, ls_quality_profile_pref
                     episode_data["Media"], ls_quality_profile_pref
                 )
 
-                dict_this_episode["title"] = show_title
-                dict_this_episode["season"] = season_data["title"]
-                dict_this_episode["episode_number"] = episode_data["index"]
-                dict_this_episode["episode_title"] = episode_title
-                dict_this_episode["view_count"] = view_count
                 dict_this_episode["dest_path"] = get_dest_path_for_source_path(
                     dict_this_episode["server_path"]
                 )
 
+                ls_dict_desired_shows.append(dict_this_episode)
+
+                num_episodes_added += 1
                 if num_episodes_added == num_episodes_of_show:
                     flag_have_enough_of_show = True
                     break
-                num_episodes_added += 1
 
-                ls_dict_desired_shows.append(dict_this_episode)
+    missing_titles = set(dict_shows_to_watch) - found_titles
+    if missing_titles:
+        raise ValueError(
+            f"Desired shows not found in Plex: {', '.join(sorted(missing_titles))}"
+        )
 
     return ls_dict_desired_shows
 
@@ -517,13 +519,17 @@ def apply_sync(df_actions):
 
 if __name__ == "__main__":
     start_time = time.time()
-    destination_root_path = ""
+    destination_root_path = "H:\\Media\\"
     if "ipykernel" in sys.argv[0]:
         print("Running in IPython kernel")
     else:
         parser = argparse.ArgumentParser(description="Sync media to folder.")
         parser.add_argument(
-            "path", type=str, help="Folder path to pull config and sync"
+            "path",
+            type=str,
+            nargs="?",
+            default=destination_root_path,
+            help="Folder path to pull config and sync",
         )
 
         args = parser.parse_args()
@@ -547,19 +553,19 @@ if __name__ == "__main__":
         f"Destination root path: {destination_root_path}",
     )
     print_logger(
-        f"Quality profile preferences:",
+        "Quality profile preferences:",
     )
     pprint_ls(
         ls_quality_profile_pref,
     )
     print_logger(
-        f"Shows to watch:",
+        "Shows to watch:",
     )
     pprint_dict(
         dict_shows_to_watch,
     )
     print_logger(
-        f"Movies to watch:",
+        "Movies to watch:",
     )
     pprint_dict(
         ls_movies_to_watch,
