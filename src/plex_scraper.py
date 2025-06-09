@@ -422,8 +422,8 @@ def print_status(df_actions, current_task=""):
         ]
     )
 
-    # print sum of filed to delete, sum of filed to download sizes
-    size_of_filed_deleted = df_actions[
+    # print sum of files to delete, sum of files to download sizes
+    size_of_files_deleted = df_actions[
         (df_actions["sync_state"] == "should delete")
         & (df_actions["status"] == "deleted")
     ]["dest_file_size_gb"].sum()
@@ -431,7 +431,7 @@ def print_status(df_actions, current_task=""):
         df_actions["sync_state"] == "should delete"
     ]["dest_file_size_gb"].sum()
 
-    num_filed_deleted = df_actions[
+    num_files_deleted = df_actions[
         (df_actions["sync_state"] == "should delete")
         & (df_actions["status"] == "deleted")
     ].shape[0]
@@ -439,7 +439,7 @@ def print_status(df_actions, current_task=""):
         df_actions["sync_state"] == "should delete"
     ].shape[0]
 
-    size_of_filed_downloaded = df_actions[
+    size_of_files_downloaded = df_actions[
         (df_actions["sync_state"] == "need download")
         & (df_actions["status"] == "downloaded")
     ]["server_file_size_gb"].sum()
@@ -458,7 +458,11 @@ def print_status(df_actions, current_task=""):
     # print a tool bar at the bottom showing status of all
     print("=" * 150)
     print(
-        f"File deletion: {num_filed_deleted}/{num_files_total_to_delete}, size: {size_of_filed_deleted:.2f} GB/{size_of_files_total_to_delete:.2f} GB ----- File downloads: {numn_files_downloaded}/{num_files_total_to_download}, size: {size_of_filed_downloaded:.2f} GB/{size_of_files_total_to_download:.2f} GB"
+        f"File deletion: {num_files_deleted}/{num_files_total_to_delete}, "
+        f"size: {size_of_files_deleted:.2f} GB/{size_of_files_total_to_delete:.2f} GB "
+        "----- "
+        f"File downloads: {numn_files_downloaded}/{num_files_total_to_download}, "
+        f"size: {size_of_files_downloaded:.2f} GB/{size_of_files_total_to_download:.2f} GB"
     )
     print("=" * 150)
 
