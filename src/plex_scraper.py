@@ -244,33 +244,37 @@ def get_best_fit_media_item(ls_media_items, ls_quality_profile_pref, force_first
 
 def get_dict_plex_desired_movie_data(ls_movies_to_watch, ls_quality_profile_pref):
     movies_data = get_dict_plex_movie_data()
-    plex_movies = {
-        m["title"].split(" (")[0]: m for m in movies_data["MediaContainer"]["Metadata"]
-    }
+    movie_meta_data = movies_data.get("MediaContainer", {}).get("Metadata", [])
+
     ls_dicts_desired_movies = []
+    ls_movies_found = []
 
-    for desired_title in ls_movies_to_watch:
-        if desired_title not in plex_movies:
-            raise ValueError(f"Desired movie not found in Plex: '{desired_title}'")
+    for plex_movie_dict in movie_meta_data:
+        # get movie title without year
+        movie_title = plex_movie_dict["title"].split(" (")[0]
+        # check if movie is desired
+        if movie_title in ls_movies_to_watch:
+            ls_movies_found.append(movie_title)
 
-        movie = plex_movies[desired_title]
-        dict_this_movie = {
-            "media_type": "movie",
-            "title": movie["title"],
-            "view_count": movie.get("viewCount", 0),
-        }
+            dict_this_movie = {
+                "media_type": "movie",
+                "title": plex_movie_dict["title"],
+                "view_count": plex_movie_dict.get("viewCount", 0),
+            }
 
-        (
-            dict_this_movie["server_path"],
-            dict_this_movie["server_file_size_gb"],
-            dict_this_movie["quality_this_part"],
-        ) = get_best_fit_media_item(movie["Media"], ls_quality_profile_pref)
+            (
+                dict_this_movie["server_path"],
+                dict_this_movie["server_file_size_gb"],
+                dict_this_movie["quality_this_part"],
+            ) = get_best_fit_media_item(
+                plex_movie_dict["Media"], ls_quality_profile_pref
+            )
 
-        dict_this_movie["dest_path"] = get_dest_path_for_source_path(
-            dict_this_movie["server_path"]
-        )
+            dict_this_movie["dest_path"] = get_dest_path_for_source_path(
+                dict_this_movie["server_path"]
+            )
 
-        ls_dicts_desired_movies.append(dict_this_movie)
+            ls_dicts_desired_movies.append(dict_this_movie)
 
     return ls_dicts_desired_movies
 
