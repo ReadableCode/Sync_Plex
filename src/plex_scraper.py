@@ -29,8 +29,17 @@ from utils.display_tools import (  # noqa: F401
 # %%
 # Variables #
 
+OPERATING_SYSTEM = platform.system()
 
-OPERATING_SYSTEM = "Windows" if os.name == "nt" else "Linux"
+if OPERATING_SYSTEM == "Windows":
+    print("Running on Windows")
+elif OPERATING_SYSTEM == "Linux":
+    print("Running on Linux")
+elif OPERATING_SYSTEM == "Darwin":
+    print("Running on macOS")
+else:
+    print(f"Running on an unknown system: {OPERATING_SYSTEM}")
+
 DOTENV_PATH = os.path.join(parent_dir, ".env")
 if os.path.exists(DOTENV_PATH):
     load_dotenv(DOTENV_PATH)
