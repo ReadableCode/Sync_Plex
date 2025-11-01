@@ -4,6 +4,7 @@
 import argparse
 import os
 import platform
+import shutil
 import subprocess
 import sys
 import time
@@ -51,38 +52,11 @@ if os.path.exists(DOTENV_PATH):
 
 def init_config(file_path):
     dict_shows_to_watch = {
-        "American Dad!": 35,
-        "Reacher": 6,
-        "The Great": 3,
-        "Lucifer": 5,
-        "New Girl": 5,
-        "Fullmetal Alchemist: Brotherhood": 10,
-        "The Boys": 5,
-        "House": 5,
-        "Brooklyn Nine-Nine": 8,
-        "The Good Place": 5,
-        "The Last of Us": 5,
-        "The Legend of Vox Machina": 5,
-        "Arcane": 5,
-        "Breaking Bad": 5,
-        "The Witcher": 5,
-        "The Apothecary Diaries": 15,
+        "American Dad!": 3,
     }
 
     ls_movies_to_watch = [
         "Zootopia",
-        "Ready Player One",
-        "Home",
-        "Twilight",
-        "Encanto",
-        "Moana",
-        "Inside Out",
-        "Frozen",
-        "Frozen II",
-        "Big Hero 6",
-        "Jexi",
-        "Her",
-        "Dungeons & Dragons: Honor Among Thieves",
     ]
 
     ls_quality_profile_pref = [
@@ -95,6 +69,8 @@ def init_config(file_path):
             return "\\\\192.168.86.31\\Media"
         elif OPERATING_SYSTEM == "Linux":
             return "/mnt/192.168.86.31/Media"  # TODO fix this on a system with a mount
+        elif OPERATING_SYSTEM == "Darwin":
+            return "/Volumes/Media"
         else:
             raise Exception("Operating system not recognized")
 
@@ -105,6 +81,8 @@ def init_config(file_path):
             return r"I:\Media"  # Windows destination (drive letter)
         elif system == "Linux":
             return "/home/jason/Downloads"  # Adjust if using a mounted storage
+        elif system == "Darwin":
+            return "/Users/jason/Downloads"  # macOS destination
         else:
             raise Exception(f"Unsupported operating system: {system}")
 
@@ -162,7 +140,7 @@ def get_dict_config(destination_root_path):
             exit()
         # init at first path if no config exists
         init_config(config_path)
-        return get_dict_config(config_path)
+        return get_dict_config(destination_root_path)
 
     print_logger(
         f"Config file found at {config_path}",
@@ -203,7 +181,9 @@ def get_dict_config(destination_root_path):
 
 def get_server_mapped_path(server_relative_path):
     video_norm_path = os.path.normpath(server_relative_path)
-    video_mapped_path = video_norm_path.replace("\\data", library_src_path)
+    video_mapped_path = video_norm_path.replace("\\data", library_src_path).replace(
+        "/data", library_src_path
+    )
 
     return video_mapped_path
 
@@ -211,7 +191,7 @@ def get_server_mapped_path(server_relative_path):
 def get_dest_path_for_source_path(source_file_path):
     dest_path = source_file_path.replace(library_src_path, destination_root_path)
     # split to list
-    ls_dest_path_split = dest_path.split("\\")
+    ls_dest_path_split = dest_path.split(os.sep)
     # loop through list, remove item if starts with "Season "
     for i, item in enumerate(ls_dest_path_split):
         if item.startswith("Season "):
@@ -223,7 +203,7 @@ def get_dest_path_for_source_path(source_file_path):
         ls_dest_path_split[0] = ls_dest_path_split[0] + "\\"
 
     # join list back to string
-    dest_path = os.path.join(*ls_dest_path_split)
+    dest_path = os.sep + os.path.join(*ls_dest_path_split)
     return dest_path
 
 
@@ -503,6 +483,10 @@ def copy_file(src_path, dest_path):
     elif OPERATING_SYSTEM == "Linux":
         print_logger(f"Using rsync to copy {src_path} to {dest_path}")
         subprocess.run(["rsync", "-av", src_path, dest_path])
+    elif OPERATING_SYSTEM == "Darwin":
+        print_logger(f"Using shutil to copy {src_path} to {dest_path}")
+        os.makedirs(os.path.dirname(dest_path), exist_ok=True)
+        shutil.copy(src_path, dest_path)
     else:
         raise Exception("Operating system not recognized")
 
@@ -554,7 +538,7 @@ if __name__ == "__main__":
         if args.path:
             destination_root_path = os.path.abspath(args.path)
 
-    print("Path to sync:", destination_root_path)
+    print_logger(f"Path to sync: {destination_root_path}")
 
     (
         library_src_path,
@@ -603,10 +587,14 @@ if __name__ == "__main__":
     ls_dicts_existing_files, size_of_existing_files = get_ls_dicts_existing_files(
         destination_root_path
     )
+    # if no existing file, still create correct columns
+    if not ls_dicts_existing_files:
+        df_existing_files = pd.DataFrame(columns=["dest_path", "dest_file_size_gb"])
+    else:
+        df_existing_files = pd.DataFrame(ls_dicts_existing_files)
 
     # convert both to dataframes and merge on dest path
     df_desired_files = pd.DataFrame(ls_dicts_desired_files)
-    df_existing_files = pd.DataFrame(ls_dicts_existing_files)
 
     df_merged = pd.merge(
         df_desired_files,
