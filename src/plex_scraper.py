@@ -191,7 +191,10 @@ def get_server_mapped_path(server_relative_path):
 def get_dest_path_for_source_path(source_file_path):
     dest_path = source_file_path.replace(library_src_path, destination_root_path)
     # split to list
-    ls_dest_path_split = dest_path.split(os.sep)
+    if OPERATING_SYSTEM == "Windows":
+        ls_dest_path_split = dest_path.split("\\")
+    else:
+        ls_dest_path_split = dest_path.split(os.sep)
     # loop through list, remove item if starts with "Season "
     for i, item in enumerate(ls_dest_path_split):
         if item.startswith("Season "):
@@ -203,7 +206,10 @@ def get_dest_path_for_source_path(source_file_path):
         ls_dest_path_split[0] = ls_dest_path_split[0] + "\\"
 
     # join list back to string
-    dest_path = os.sep + os.path.join(*ls_dest_path_split)
+    if OPERATING_SYSTEM == "Windows":
+        dest_path = os.path.join(*ls_dest_path_split)
+    else:
+        dest_path = os.sep + os.path.join(*ls_dest_path_split)
     return dest_path
 
 
