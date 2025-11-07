@@ -526,7 +526,7 @@ def apply_sync(df_actions):
 
 if __name__ == "__main__":
     start_time = time.time()
-    destination_root_path = "H:\\Media\\"
+    destination_root_path = "/Users/jason/Media/"
     if "ipykernel" in sys.argv[0]:
         print("Running in IPython kernel")
     else:
@@ -621,6 +621,18 @@ if __name__ == "__main__":
     df_merged["size_diff_gb"] = df_merged["server_file_size_gb"].astype(
         float
     ) - df_merged["dest_file_size_gb"].astype(float)
+
+    # print entire dataframe as list of dictionaries
+    dict_df = df_merged.to_dict(orient="records")
+    print_logger("Merged DataFrame as list of dictionaries:")
+    pprint_dict(dict_df)
+
+    # are you sure again
+    if input("Do you want to continue with these files? (y/n): ").lower() != "y":
+        print_logger(
+            "Exiting...",
+        )
+        exit()
 
     df_merged = df_merged[
         [
