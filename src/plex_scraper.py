@@ -352,6 +352,8 @@ def get_ls_dicts_existing_files(destination_root_path):
             os.path.join(destination_root_path, clean_dir)
         ):
             for file in files:
+                if file.startswith("._"):
+                    continue
                 file_path = os.path.join(root, file)
                 file_size = os.path.getsize(file_path)
                 size_of_existing_files += file_size
