@@ -74,22 +74,9 @@ def init_config(file_path):
         "optimized for mobile",
     ]
 
-    def get_destination_root_path():
-        system = platform.system()
-
-        if system == "Windows":
-            return r"I:\Media"  # Windows destination (drive letter)
-        elif system == "Linux":
-            return "/home/jason/Downloads"  # Adjust if using a mounted storage
-        elif system == "Darwin":
-            return "/Users/jason/Downloads"  # macOS destination
-        else:
-            raise Exception(f"Unsupported operating system: {system}")
-
     def write_media_config(
         dict_shows: dict[str, int],
         list_movies: list[str],
-        destination_root_path: str,
         out_path: str = "config.yaml",
     ) -> None:
         shows = [
@@ -101,7 +88,6 @@ def init_config(file_path):
             {"quality_profile": name} for name in ls_quality_profile_pref
         ]
         data = {
-            "destination_root_path": destination_root_path,
             "shows": shows,
             "movies": movies,
             "quality_profile_pref": quality_profile_pres,
@@ -118,7 +104,6 @@ def init_config(file_path):
     write_media_config(
         dict_shows=dict_shows_to_watch,
         list_movies=ls_movies_to_watch,
-        destination_root_path=get_destination_root_path(),
         out_path=file_path,
     )
 
