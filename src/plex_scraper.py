@@ -45,9 +45,19 @@ DOTENV_PATH = os.path.join(parent_dir, ".env")
 if os.path.exists(DOTENV_PATH):
     load_dotenv(DOTENV_PATH)
 
-
 # %%
 # Configuration #
+
+
+def get_source_root_path():
+    if OPERATING_SYSTEM == "Windows":
+        return "\\\\192.168.86.31\\Media"
+    elif OPERATING_SYSTEM == "Linux":
+        return "/mnt/192.168.86.31/Media"  # TODO fix this on a system with a mount
+    elif OPERATING_SYSTEM == "Darwin":
+        return "/Volumes/Media"
+    else:
+        raise Exception("Operating system not recognized")
 
 
 def init_config(file_path):
@@ -64,16 +74,6 @@ def init_config(file_path):
         "optimized for mobile",
     ]
 
-    def get_source_root_path():
-        if OPERATING_SYSTEM == "Windows":
-            return "\\\\192.168.86.31\\Media"
-        elif OPERATING_SYSTEM == "Linux":
-            return "/mnt/192.168.86.31/Media"  # TODO fix this on a system with a mount
-        elif OPERATING_SYSTEM == "Darwin":
-            return "/Volumes/Media"
-        else:
-            raise Exception("Operating system not recognized")
-
     def get_destination_root_path():
         system = platform.system()
 
@@ -89,7 +89,6 @@ def init_config(file_path):
     def write_media_config(
         dict_shows: dict[str, int],
         list_movies: list[str],
-        library_src_path: str,
         destination_root_path: str,
         out_path: str = "config.yaml",
     ) -> None:
@@ -102,7 +101,6 @@ def init_config(file_path):
             {"quality_profile": name} for name in ls_quality_profile_pref
         ]
         data = {
-            "library_src_path": library_src_path,
             "destination_root_path": destination_root_path,
             "shows": shows,
             "movies": movies,
@@ -120,7 +118,6 @@ def init_config(file_path):
     write_media_config(
         dict_shows=dict_shows_to_watch,
         list_movies=ls_movies_to_watch,
-        library_src_path=get_source_root_path(),
         destination_root_path=get_destination_root_path(),
         out_path=file_path,
     )
@@ -168,7 +165,6 @@ def get_dict_config(destination_root_path):
         item["quality_profile"] for item in config["quality_profile_pref"]
     ]
     return (
-        config["library_src_path"],
         ls_quality_profile_pref,
         shows,
         movies,
@@ -181,15 +177,15 @@ def get_dict_config(destination_root_path):
 
 def get_server_mapped_path(server_relative_path):
     video_norm_path = os.path.normpath(server_relative_path)
-    video_mapped_path = video_norm_path.replace("\\data", library_src_path).replace(
-        "/data", library_src_path
-    )
+    video_mapped_path = video_norm_path.replace(
+        "\\data", get_source_root_path()
+    ).replace("/data", get_source_root_path())
 
     return video_mapped_path
 
 
 def get_dest_path_for_source_path(source_file_path):
-    dest_path = source_file_path.replace(library_src_path, destination_root_path)
+    dest_path = source_file_path.replace(get_source_root_path(), destination_root_path)
     # split to list
     if OPERATING_SYSTEM == "Windows":
         ls_dest_path_split = dest_path.split("\\")
@@ -547,15 +543,11 @@ if __name__ == "__main__":
     print_logger(f"Path to sync: {destination_root_path}")
 
     (
-        library_src_path,
         ls_quality_profile_pref,
         dict_shows_to_watch,
         ls_movies_to_watch,
     ) = get_dict_config(destination_root_path)
 
-    print_logger(
-        f"Library source path: {library_src_path}",
-    )
     print_logger(
         f"Destination root path: {destination_root_path}",
     )
