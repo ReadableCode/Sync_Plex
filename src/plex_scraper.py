@@ -169,7 +169,7 @@ def get_server_mapped_path(server_relative_path):
     return video_mapped_path
 
 
-def get_dest_path_for_source_path(source_file_path):
+def get_dest_path_for_source_path(source_file_path, destination_root_path):
     dest_path = source_file_path.replace(get_source_root_path(), destination_root_path)
     # split to list
     if OPERATING_SYSTEM == "Windows":
@@ -218,7 +218,9 @@ def get_best_fit_media_item(ls_media_items, ls_quality_profile_pref, force_first
 # %%
 
 
-def get_dict_plex_desired_movie_data(ls_movies_to_watch, ls_quality_profile_pref):
+def get_dict_plex_desired_movie_data(
+    ls_movies_to_watch, ls_quality_profile_pref, destination_root_path
+):
     movies_data = get_dict_plex_movie_data()
     movie_meta_data = movies_data.get("MediaContainer", {}).get("Metadata", [])
 
@@ -247,7 +249,7 @@ def get_dict_plex_desired_movie_data(ls_movies_to_watch, ls_quality_profile_pref
             )
 
             dict_this_movie["dest_path"] = get_dest_path_for_source_path(
-                dict_this_movie["server_path"]
+                dict_this_movie["server_path"], destination_root_path
             )
 
             ls_dicts_desired_movies.append(dict_this_movie)
@@ -255,7 +257,9 @@ def get_dict_plex_desired_movie_data(ls_movies_to_watch, ls_quality_profile_pref
     return ls_dicts_desired_movies
 
 
-def get_dict_plex_desired_show_data(dict_shows_to_watch, ls_quality_profile_pref):
+def get_dict_plex_desired_show_data(
+    dict_shows_to_watch, ls_quality_profile_pref, destination_root_path
+):
     shows_data = get_dict_plex_show_data()
     found_titles = set()
     ls_dict_desired_shows = []
@@ -309,7 +313,7 @@ def get_dict_plex_desired_show_data(dict_shows_to_watch, ls_quality_profile_pref
                 )
 
                 dict_this_episode["dest_path"] = get_dest_path_for_source_path(
-                    dict_this_episode["server_path"]
+                    dict_this_episode["server_path"], destination_root_path
                 )
 
                 ls_dict_desired_shows.append(dict_this_episode)
@@ -328,14 +332,18 @@ def get_dict_plex_desired_show_data(dict_shows_to_watch, ls_quality_profile_pref
     return ls_dict_desired_shows
 
 
-def get_list_dicts_desired_files(
-    ls_movies_to_watch, dict_shows_to_watch, ls_quality_profile_pref
-):
+def get_list_dicts_desired_files(destination_root_path):
+    (
+        ls_quality_profile_pref,
+        dict_shows_to_watch,
+        ls_movies_to_watch,
+    ) = get_dict_config(destination_root_path)
+
     ls_dicts_desired_movies = get_dict_plex_desired_movie_data(
-        ls_movies_to_watch, ls_quality_profile_pref
+        ls_movies_to_watch, ls_quality_profile_pref, destination_root_path
     )
     ls_dicts_desired_shows = get_dict_plex_desired_show_data(
-        dict_shows_to_watch, ls_quality_profile_pref
+        dict_shows_to_watch, ls_quality_profile_pref, destination_root_path
     )
 
     # combine lists
@@ -529,45 +537,11 @@ if __name__ == "__main__":
 
     print_logger(f"Path to sync: {destination_root_path}")
 
-    (
-        ls_quality_profile_pref,
-        dict_shows_to_watch,
-        ls_movies_to_watch,
-    ) = get_dict_config(destination_root_path)
-
     print_logger(
         f"Destination root path: {destination_root_path}",
     )
-    print_logger(
-        "Quality profile preferences:",
-    )
-    pprint_ls(
-        ls_quality_profile_pref,
-    )
-    print_logger(
-        "Shows to watch:",
-    )
-    pprint_dict(
-        dict_shows_to_watch,
-    )
-    print_logger(
-        "Movies to watch:",
-    )
-    pprint_dict(
-        ls_movies_to_watch,
-    )
 
-    if input("Do you want to continue? (y/n): ").lower() != "y":
-        print_logger(
-            "Exiting...",
-        )
-        exit()
-
-    ls_dicts_desired_files = get_list_dicts_desired_files(
-        ls_movies_to_watch,
-        dict_shows_to_watch,
-        ls_quality_profile_pref,
-    )
+    ls_dicts_desired_files = get_list_dicts_desired_files(destination_root_path)
 
     ls_dicts_existing_files, size_of_existing_files = get_ls_dicts_existing_files(
         destination_root_path
