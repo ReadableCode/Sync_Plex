@@ -391,6 +391,7 @@ def print_status(df_actions, current_task=""):
     print("=" * 150)
     print(f"Status: {current_task}")
     print("=" * 150)
+    df_actions["size"] = df_actions["server_file_size_gb"].fillna(df_actions["dest_file_size_gb"])
     pprint_df(
         df_actions[
             [
@@ -401,9 +402,10 @@ def print_status(df_actions, current_task=""):
                 "episode_number",
                 # "episode_title",
                 "sync_state",
-                "size_diff_gb",
-                "server_file_size_gb",
-                "dest_file_size_gb",
+                # "size_diff_gb",
+                # "server_file_size_gb",
+                # "dest_file_size_gb",
+                "size",
                 # "server_path",
                 "dest_path",
                 # "view_count",
