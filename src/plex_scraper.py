@@ -391,7 +391,9 @@ def print_status(df_actions, current_task=""):
     print("=" * 150)
     print(f"Status: {current_task}")
     print("=" * 150)
-    df_actions["size"] = df_actions["server_file_size_gb"].fillna(df_actions["dest_file_size_gb"])
+    df_actions["size"] = df_actions["server_file_size_gb"].fillna(
+        df_actions["dest_file_size_gb"]
+    )
     pprint_df(
         df_actions[
             [
@@ -490,7 +492,15 @@ def copy_file(src_path, dest_path):
         raise Exception("Operating system not recognized")
 
 
-def apply_sync(df_actions):
+def remove_empty_dirs(root_path):
+    for dirpath, dirnames, filenames in os.walk(root_path, topdown=False):
+        if dirpath == root_path:
+            continue
+        if not os.listdir(dirpath):
+            os.rmdir(dirpath)
+
+
+def apply_sync(df_actions, destination_root_path):
     print_status(df_actions, "Beginning sync")
     for index, row in df_actions.iterrows():
         if row["sync_state"] == "should delete":
@@ -501,6 +511,13 @@ def apply_sync(df_actions):
 
             df_actions.at[index, "status"] = "deleted"
             print_status(df_actions, "Done deleting")
+
+    # Remove empty directories within destination subdirectories
+    for clean_dir in ["TV", "Movies"]:
+        sub_path = os.path.join(destination_root_path, clean_dir)
+        if os.path.isdir(sub_path):
+            remove_empty_dirs(sub_path)
+    print_status(df_actions, "Cleaned empty folders")
 
     for index, row in df_actions.iterrows():
         if row["sync_state"] == "need download":
@@ -639,7 +656,7 @@ if __name__ == "__main__":
     else:
         print_logger("Starting sync process...")
 
-    apply_sync(df_actions)
+    apply_sync(df_actions, destination_root_path)
 
     print_logger(f"Time taken: {time.time() - start_time:.2f} seconds")
 
