@@ -4,6 +4,7 @@
 import argparse
 import os
 import platform
+import re
 import shutil
 import subprocess
 import sys
@@ -49,11 +50,21 @@ if os.path.exists(DOTENV_PATH):
 # Configuration #
 
 
+def get_plex_server_host():
+    """Extract just the hostname/IP from the PLEX_SERVER env var."""
+    plex_server = os.environ["PLEX_SERVER"]
+    match = re.search(r"https?://([^:/]+)", plex_server)
+    if not match:
+        raise ValueError(f"Could not parse host from PLEX_SERVER: {plex_server}")
+    return match.group(1)
+
+
 def get_source_root_path():
     if OPERATING_SYSTEM == "Windows":
-        return "\\\\192.168.86.31\\Media"
+        return f"\\\\{get_plex_server_host()}\\Media"
     elif OPERATING_SYSTEM == "Linux":
-        return "/mnt/192.168.86.31/Media"  # TODO fix this on a system with a mount
+        # Server-side path used as the rsync source root over SSH
+        return os.environ.get("PLEX_SERVER_MEDIA_PATH", "/Media")
     elif OPERATING_SYSTEM == "Darwin":
         return "/Volumes/Media"
     else:
@@ -482,8 +493,20 @@ def copy_file(src_path, dest_path):
                 level="error",
             )
     elif OPERATING_SYSTEM == "Linux":
-        print_logger(f"Using rsync to copy {src_path} to {dest_path}")
-        subprocess.run(["rsync", "-av", src_path, dest_path])
+        ssh_user = os.environ.get("PLEX_SSH_USER")
+        if not ssh_user:
+            raise EnvironmentError(
+                "PLEX_SSH_USER env var is required for Linux rsync-over-SSH copies."
+            )
+        server_host = get_plex_server_host()
+        remote_src = f"{ssh_user}@{server_host}:{src_path}"
+        print_logger(f"Using rsync over SSH to copy {remote_src} to {dest_path}")
+        os.makedirs(os.path.dirname(dest_path), exist_ok=True)
+        result = subprocess.run(["rsync", "-av", "-e", "ssh", remote_src, dest_path])
+        if result.returncode != 0:
+            raise RuntimeError(
+                f"rsync failed with exit code {result.returncode} copying {remote_src} to {dest_path}."
+            )
     elif OPERATING_SYSTEM == "Darwin":
         print_logger(f"Using shutil to copy {src_path} to {dest_path}")
         os.makedirs(os.path.dirname(dest_path), exist_ok=True)
