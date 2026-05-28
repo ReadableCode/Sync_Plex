@@ -102,6 +102,7 @@ def init_config(file_path):
             "shows": shows,
             "movies": movies,
             "quality_profile_pref": quality_profile_pres,
+            "retain_folder_structure": False,
         }
 
         with open(out_path, "w") as f:
@@ -160,10 +161,12 @@ def get_dict_config(destination_root_path):
     ls_quality_profile_pref = [
         item["quality_profile"] for item in config["quality_profile_pref"]
     ]
+    retain_folder_structure = config.get("retain_folder_structure", False)
     return (
         ls_quality_profile_pref,
         shows,
         movies,
+        retain_folder_structure,
     )
 
 
@@ -180,8 +183,12 @@ def get_server_mapped_path(server_relative_path):
     return video_mapped_path
 
 
-def get_dest_path_for_source_path(source_file_path, destination_root_path):
+def get_dest_path_for_source_path(
+    source_file_path, destination_root_path, retain_folder_structure=False
+):
     dest_path = source_file_path.replace(get_source_root_path(), destination_root_path)
+    if retain_folder_structure:
+        return dest_path
     # split to list
     if OPERATING_SYSTEM == "Windows":
         ls_dest_path_split = dest_path.split("\\")
@@ -230,7 +237,10 @@ def get_best_fit_media_item(ls_media_items, ls_quality_profile_pref, force_first
 
 
 def get_dict_plex_desired_movie_data(
-    ls_movies_to_watch, ls_quality_profile_pref, destination_root_path
+    ls_movies_to_watch,
+    ls_quality_profile_pref,
+    destination_root_path,
+    retain_folder_structure=False,
 ):
     movies_data = get_dict_plex_movie_data()
     movie_meta_data = movies_data.get("MediaContainer", {}).get("Metadata", [])
@@ -260,7 +270,9 @@ def get_dict_plex_desired_movie_data(
             )
 
             dict_this_movie["dest_path"] = get_dest_path_for_source_path(
-                dict_this_movie["server_path"], destination_root_path
+                dict_this_movie["server_path"],
+                destination_root_path,
+                retain_folder_structure,
             )
 
             ls_dicts_desired_movies.append(dict_this_movie)
@@ -269,7 +281,10 @@ def get_dict_plex_desired_movie_data(
 
 
 def get_dict_plex_desired_show_data(
-    dict_shows_to_watch, ls_quality_profile_pref, destination_root_path
+    dict_shows_to_watch,
+    ls_quality_profile_pref,
+    destination_root_path,
+    retain_folder_structure=False,
 ):
     shows_data = get_dict_plex_show_data()
     found_titles = set()
@@ -324,7 +339,9 @@ def get_dict_plex_desired_show_data(
                 )
 
                 dict_this_episode["dest_path"] = get_dest_path_for_source_path(
-                    dict_this_episode["server_path"], destination_root_path
+                    dict_this_episode["server_path"],
+                    destination_root_path,
+                    retain_folder_structure,
                 )
 
                 ls_dict_desired_shows.append(dict_this_episode)
@@ -348,13 +365,20 @@ def get_list_dicts_desired_files(destination_root_path):
         ls_quality_profile_pref,
         dict_shows_to_watch,
         ls_movies_to_watch,
+        retain_folder_structure,
     ) = get_dict_config(destination_root_path)
 
     ls_dicts_desired_movies = get_dict_plex_desired_movie_data(
-        ls_movies_to_watch, ls_quality_profile_pref, destination_root_path
+        ls_movies_to_watch,
+        ls_quality_profile_pref,
+        destination_root_path,
+        retain_folder_structure,
     )
     ls_dicts_desired_shows = get_dict_plex_desired_show_data(
-        dict_shows_to_watch, ls_quality_profile_pref, destination_root_path
+        dict_shows_to_watch,
+        ls_quality_profile_pref,
+        destination_root_path,
+        retain_folder_structure,
     )
 
     # combine lists
