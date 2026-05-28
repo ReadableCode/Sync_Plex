@@ -646,13 +646,6 @@ if __name__ == "__main__":
     print_logger("Merged DataFrame as list of dictionaries:")
     pprint_dict(dict_df)
 
-    # are you sure again
-    if input("Do you want to continue with these files? (y/n): ").lower() != "y":
-        print_logger(
-            "Exiting...",
-        )
-        exit()
-
     df_merged = df_merged[
         [
             "media_type",
