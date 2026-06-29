@@ -33,3 +33,4 @@ looker.ini
 *.egg-info/
 .venv
 config.yaml
+.DS_Store
