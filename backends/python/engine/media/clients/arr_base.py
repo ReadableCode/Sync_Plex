@@ -1,5 +1,6 @@
 """Shared HTTP plumbing for Sonarr and Radarr (both expose the same v3 API shape)."""
 
+import time
 from typing import Any
 
 import httpx
@@ -36,6 +37,16 @@ class ArrClientBase:
             resp = await client.post(path, json=payload)
             resp.raise_for_status()
             return resp.json()
+
+    async def ping_ms(self) -> float:
+        """Round-trip time of the cheapest authenticated endpoint, in milliseconds."""
+        start = time.perf_counter()
+        await self._get("/api/v3/system/status")
+        return (time.perf_counter() - start) * 1000
+
+    async def disk_space(self) -> list[dict]:
+        """Every mount the server can see, with freeSpace/totalSpace in bytes."""
+        return await self._get("/api/v3/diskspace")
 
     async def quality_profiles(self) -> list[dict]:
         return await self._get("/api/v3/qualityprofile")

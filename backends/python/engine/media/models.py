@@ -76,6 +76,24 @@ class InstanceStatus(BaseModel):
     error: str = ""
 
 
+class ServerHealth(BaseModel):
+    """Liveness, storage, and library totals for one configured server."""
+
+    name: str
+    kind: str  # sonarr | radarr | plex
+    up: bool = False
+    ping_ms: float | None = None
+    error: str = ""
+    disk_free_bytes: int | None = None
+    disk_total_bytes: int | None = None
+    series_count: int | None = None
+    episode_count: int | None = None  # downloaded episode files, not aired totals
+    movie_count: int | None = None
+    library_size_bytes: int | None = None
+    avg_episode_bytes: float | None = None  # library size / episode files — feeds add estimates
+    avg_movie_bytes: float | None = None
+
+
 class PlexAvailability(BaseModel):
     """Watch-readiness of one title on one Plex server."""
 

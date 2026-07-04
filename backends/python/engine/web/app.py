@@ -16,7 +16,8 @@ from ..media.aggregation import (
     search_everywhere,
 )
 from ..media.config import MediaConfig, load_media_config
-from ..media.models import AggregatedResult, MediaType, PresenceState
+from ..media.health import check_all_servers, estimate_add_bytes, format_bytes
+from ..media.models import AggregatedResult, MediaType, PresenceState, ServerHealth
 
 STATE_BADGE = {
     PresenceState.MONITORED_COMPLETE: ("● complete", "state-complete"),
@@ -109,6 +110,22 @@ body, body.body--dark {
 
 .q-notification { border-radius: var(--radius); }
 
+/* storage meter: hairline track, green fill, red when nearly full */
+.meter {
+  width: 100%;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  overflow: hidden;
+}
+.meter > i {
+  display: block;
+  height: 100%;
+  background: var(--green);
+}
+.meter > i.meter-hot { background: var(--dot-red); }
+
 /* signature pieces: ❯ brand, // section headers */
 .brand-prompt { color: var(--green-bright); }
 .section-h {
@@ -135,6 +152,20 @@ def _short(instance_name: str) -> str:
     return instance_name.split("-", 1)[-1]
 
 
+def _stats_line(health: ServerHealth) -> str:
+    """'812 shows · 24,331 episodes · 18.9 TB' — only the parts this server has."""
+    parts = []
+    if health.series_count is not None:
+        parts.append(f"{health.series_count:,} shows")
+    if health.episode_count is not None:
+        parts.append(f"{health.episode_count:,} episodes")
+    if health.movie_count is not None:
+        parts.append(f"{health.movie_count:,} movies")
+    if health.library_size_bytes:
+        parts.append(format_bytes(health.library_size_bytes))
+    return " · ".join(parts)
+
+
 def run_web(host: str = "127.0.0.1", port: int = 8788) -> None:
     from nicegui import ui
 
@@ -154,10 +185,47 @@ def run_web(host: str = "127.0.0.1", port: int = 8788) -> None:
             warning="#e3b341",
         )
         ui.add_css(_TOKENS_CSS)
-        state: dict = {"media_type": MediaType.TV}
+        state: dict = {"media_type": MediaType.TV, "health": {}}
 
         def _section(title: str) -> None:
             ui.html(f'<span class="sh-slash">//</span> {title}').classes("section-h")
+
+        def _health_card(health: ServerHealth) -> None:
+            with ui.card().classes("grow basis-52 gap-1 p-3"):
+                with ui.row().classes("items-center w-full no-wrap gap-2"):
+                    ui.label(health.name).classes("text-sm font-bold grow truncate")
+                    if health.up:
+                        ping = f" {health.ping_ms:.0f}ms" if health.ping_ms is not None else ""
+                        ui.label(f"● up{ping}").classes("state-complete text-xs shrink-0")
+                    else:
+                        ui.label("✗ down").classes("state-error text-xs shrink-0")
+                if health.disk_total_bytes:
+                    used = health.disk_total_bytes - (health.disk_free_bytes or 0)
+                    pct = round(100 * used / health.disk_total_bytes)
+                    hot = " meter-hot" if pct >= 90 else ""
+                    ui.html(f'<div class="meter"><i class="{hot}" style="width:{pct}%"></i></div>')
+                    ui.label(
+                        f"{format_bytes(used)} used · {format_bytes(health.disk_free_bytes or 0)} free"
+                        f" of {format_bytes(health.disk_total_bytes)}"
+                    ).classes("text-xs muted")
+                stats = _stats_line(health)
+                if stats:
+                    ui.label(stats).classes("text-xs muted")
+                if not health.up and health.error:
+                    ui.label(health.error[:100]).classes("text-xs state-error")
+
+        def render_health() -> None:
+            health_row.clear()
+            with health_row:
+                if not state["health"]:
+                    ui.label("checking servers…").classes("text-xs muted")
+                for health in state["health"].values():
+                    _health_card(health)
+
+        async def refresh_health() -> None:
+            healths = await check_all_servers(config)
+            state["health"] = {h.name: h for h in healths}
+            render_health()
 
         async def do_search() -> None:
             query = (search_box.value or "").strip()
@@ -255,11 +323,25 @@ def run_web(host: str = "127.0.0.1", port: int = 8788) -> None:
                     action_area.clear()
                     with action_area:
                         for status in aggregated.statuses:
-                            if status.state == PresenceState.NOT_PRESENT:
-                                ui.button(
-                                    f"add to {status.instance}",
-                                    on_click=lambda s=status: do_add(s.instance),
-                                ).classes("w-full").props("size=lg color=positive text-color=dark")
+                            if status.state != PresenceState.NOT_PRESENT:
+                                continue
+                            health = state["health"].get(status.instance)
+                            estimate = estimate_add_bytes(aggregated, health)
+                            ui.button(
+                                f"add to {status.instance} · ~{format_bytes(estimate)}",
+                                on_click=lambda s=status: do_add(s.instance),
+                            ).classes("w-full").props("size=lg color=positive text-color=dark")
+                            free = health.disk_free_bytes if health else None
+                            if free is not None:
+                                if estimate > free:
+                                    ui.label(
+                                        f"⚠ needs ~{format_bytes(estimate)} but only "
+                                        f"{format_bytes(free)} free on {_short(status.instance)}"
+                                    ).classes("text-xs state-partial")
+                                else:
+                                    ui.label(
+                                        f"{format_bytes(free)} free on {_short(status.instance)}"
+                                    ).classes("text-xs muted")
 
                 def render_plex() -> None:
                     plex_area.clear()
@@ -310,6 +392,9 @@ def run_web(host: str = "127.0.0.1", port: int = 8788) -> None:
                     value=MediaType.TV,
                     on_change=on_toggle,
                 ).props("no-caps toggle-text-color=dark")
+            health_row = ui.row().classes("w-full gap-3 items-stretch")
+            render_health()
+            ui.timer(60.0, refresh_health)  # fires immediately, then every minute
             search_box = (
                 ui.input(placeholder="search…", on_change=do_search)
                 .props('debounce=500 clearable outlined input-class="text-lg"')

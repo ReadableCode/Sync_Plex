@@ -1,3 +1,5 @@
+import time
+
 import httpx
 
 from ..config import PlexServer
@@ -21,15 +23,26 @@ class PlexClient:
     def name(self) -> str:
         return self.server.name
 
-    async def _search(self, title: str) -> list[dict]:
-        async with httpx.AsyncClient(
+    def _client(self) -> httpx.AsyncClient:
+        return httpx.AsyncClient(
             base_url=self.server.base_url,
             headers={"X-Plex-Token": self.server.token, "Accept": "application/json"},
             timeout=self.timeout,
-        ) as client:
+        )
+
+    async def _search(self, title: str) -> list[dict]:
+        async with self._client() as client:
             resp = await client.get("/library/all", params={"title": title, "includeGuids": "1"})
             resp.raise_for_status()
             return resp.json().get("MediaContainer", {}).get("Metadata", []) or []
+
+    async def ping_ms(self) -> float:
+        """Round-trip time of the lightweight /identity endpoint, in milliseconds."""
+        start = time.perf_counter()
+        async with self._client() as client:
+            resp = await client.get("/identity")
+            resp.raise_for_status()
+        return (time.perf_counter() - start) * 1000
 
     async def check_presence(self, result: MediaSearchResult) -> PlexAvailability:
         try:
