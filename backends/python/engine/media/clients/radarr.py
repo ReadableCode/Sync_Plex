@@ -1,5 +1,5 @@
 from ..models import InstanceStatus, MediaSearchResult, MediaType, PresenceState
-from .arr_base import ArrClientBase, poster_url
+from .arr_base import SLOW_READ_TIMEOUT, ArrClientBase, poster_url
 
 
 class RadarrClient(ArrClientBase):
@@ -7,7 +7,7 @@ class RadarrClient(ArrClientBase):
 
     async def lookup(self, term: str) -> list[dict]:
         """Search movies. Items already in this instance's library carry a non-zero id."""
-        return await self._get("/api/v3/movie/lookup", params={"term": term})
+        return await self._get("/api/v3/movie/lookup", params={"term": term}, timeout=SLOW_READ_TIMEOUT)
 
     async def lookup_by_tmdb(self, tmdb_id: int) -> list[dict]:
         return await self.lookup(f"tmdb:{tmdb_id}")
@@ -15,7 +15,7 @@ class RadarrClient(ArrClientBase):
     async def get_library(self) -> list[dict]:
         """Every movie in this instance's library. Lookup responses leave
         hasFile empty even for downloaded movies — these records are authoritative."""
-        return await self._get("/api/v3/movie")
+        return await self._get("/api/v3/movie", timeout=SLOW_READ_TIMEOUT)
 
     async def add_movie(self, lookup_item: dict, quality_profile_id: int, root_folder: str) -> dict:
         payload = dict(lookup_item)
@@ -52,8 +52,11 @@ class RadarrClient(ArrClientBase):
 
         has_file = bool(item.get("hasFile"))
         state = PresenceState.MONITORED_COMPLETE if has_file else PresenceState.MONITORED_INCOMPLETE
+        # Radarr v3/v4 put sizeOnDisk on the movie record; v5 moved it under statistics
+        size = item.get("sizeOnDisk") or (item.get("statistics") or {}).get("sizeOnDisk")
         return InstanceStatus(
             instance=self.name,
             state=state,
             monitored=item.get("monitored", False),
+            size_on_disk=size or None,
         )

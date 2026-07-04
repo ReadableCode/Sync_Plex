@@ -101,7 +101,8 @@ def merge_lookups(
                     InstanceStatus(
                         instance=instance.name,
                         state=PresenceState.UNREACHABLE,
-                        error=str(snapshot),
+                        # httpx timeouts stringify to "" — fall back to the class name
+                        error=str(snapshot) or type(snapshot).__name__,
                     )
                 )
                 continue

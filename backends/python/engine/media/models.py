@@ -50,6 +50,7 @@ class SeasonDetail(BaseModel):
     episode_file_count: int = 0
     episode_count: int = 0  # monitored + aired episodes (sonarr semantics)
     total_episode_count: int = 0  # all episodes incl. unmonitored/unaired
+    size_on_disk: int = 0  # bytes the season folder occupies on this instance
 
 
 class EpisodeDetail(BaseModel):
@@ -73,6 +74,7 @@ class InstanceStatus(BaseModel):
     total_episode_count: int | None = None
     series_id: int | None = None  # instance-internal id when present (needed for episode queries)
     seasons: list[SeasonDetail] = Field(default_factory=list)
+    size_on_disk: int | None = None  # bytes the whole title occupies on this instance
     error: str = ""
 
 

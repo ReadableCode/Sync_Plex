@@ -25,6 +25,7 @@ from ..aggregation import (
     search_everywhere,
 )
 from ..config import load_media_config
+from ..health import format_bytes
 from ..models import AggregatedResult, MediaType, PresenceState
 
 # terminal-navy tokens (dotfiles design/tokens.css)
@@ -426,13 +427,16 @@ class MediaRemote(App):
             line = f"{glyph} {status.instance}: {label}"
             if status.state == PresenceState.MONITORED_INCOMPLETE and status.missing_episode_count is not None:
                 line += f" — missing {status.missing_episode_count}/{status.total_episode_count} eps"
+            if status.size_on_disk:
+                line += f" · {format_bytes(status.size_on_disk)}"
             lines.append(line)
             for season in sorted(status.seasons, key=lambda s: (s.season_number == 0, s.season_number)):
                 label = "SP" if season.season_number == 0 else f"S{season.season_number}"
                 mark = f"[{GREEN_BRIGHT}]✓[/]" if season.monitored else f"[{MUTED}]✗[/]"
                 denominator = season.total_episode_count or season.episode_count
                 counts = f"{season.episode_file_count}/{denominator}" if denominator else "—"
-                lines.append(f"    {mark} {label:<4} {counts}")
+                size = f"  [{MUTED}]{format_bytes(season.size_on_disk)}[/]" if season.size_on_disk else ""
+                lines.append(f"    {mark} {label:<4} {counts}{size}")
         if aggregated.plex:
             lines.append("")
             lines.append(f"[{GREEN_BRIGHT}]//[/] plex")

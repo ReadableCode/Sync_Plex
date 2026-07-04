@@ -78,12 +78,21 @@ def apply_library_stats(health: ServerHealth, items: list[dict]) -> None:
             health.avg_movie_bytes = health.library_size_bytes / downloaded
 
 
+async def _ping_twice(ping) -> float:
+    """One retry on failure — a transient blip must not flag a healthy server as
+    down for a whole banner cycle. Latency reported is the successful attempt's."""
+    try:
+        return await ping()
+    except Exception:  # noqa: BLE001 — second failure propagates to the caller
+        return await ping()
+
+
 async def _arr_health(client: SonarrClient | RadarrClient, kind: str) -> ServerHealth:
     health = ServerHealth(name=client.name, kind=kind)
     try:
-        health.ping_ms = await client.ping_ms()
+        health.ping_ms = await _ping_twice(client.ping_ms)
     except Exception as exc:  # noqa: BLE001 — a down server is a result, not an error
-        health.error = str(exc)
+        health.error = str(exc) or type(exc).__name__
         return health
     health.up = True
 
@@ -104,10 +113,10 @@ async def _arr_health(client: SonarrClient | RadarrClient, kind: str) -> ServerH
 async def _plex_health(server: PlexServer) -> ServerHealth:
     health = ServerHealth(name=server.name, kind="plex")
     try:
-        health.ping_ms = await PlexClient(server).ping_ms()
+        health.ping_ms = await _ping_twice(PlexClient(server).ping_ms)
         health.up = True
     except Exception as exc:  # noqa: BLE001
-        health.error = str(exc)
+        health.error = str(exc) or type(exc).__name__
     return health
 
 

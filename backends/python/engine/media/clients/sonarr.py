@@ -1,5 +1,5 @@
 from ..models import EpisodeDetail, InstanceStatus, MediaSearchResult, MediaType, PresenceState, SeasonDetail
-from .arr_base import ArrClientBase, poster_url
+from .arr_base import SLOW_READ_TIMEOUT, ArrClientBase, poster_url
 
 
 class SonarrClient(ArrClientBase):
@@ -8,7 +8,7 @@ class SonarrClient(ArrClientBase):
     async def lookup(self, term: str) -> list[dict]:
         """Search series. Items already in this instance's library carry a non-zero id
         and inline statistics, so one call answers both 'what matches' and 'do I have it'."""
-        return await self._get("/api/v3/series/lookup", params={"term": term})
+        return await self._get("/api/v3/series/lookup", params={"term": term}, timeout=SLOW_READ_TIMEOUT)
 
     async def lookup_by_tvdb(self, tvdb_id: int) -> list[dict]:
         return await self.lookup(f"tvdb:{tvdb_id}")
@@ -20,7 +20,7 @@ class SonarrClient(ArrClientBase):
 
     async def get_library(self) -> list[dict]:
         """Every series in this instance's library, with authoritative statistics."""
-        return await self._get("/api/v3/series")
+        return await self._get("/api/v3/series", timeout=SLOW_READ_TIMEOUT)
 
     async def get_episodes(self, series_id: int) -> list[EpisodeDetail]:
         """Full episode list for a series already in this instance's library."""
@@ -90,6 +90,7 @@ class SonarrClient(ArrClientBase):
                 episode_file_count=s.get("statistics", {}).get("episodeFileCount", 0),
                 episode_count=s.get("statistics", {}).get("episodeCount", 0),
                 total_episode_count=s.get("statistics", {}).get("totalEpisodeCount", 0),
+                size_on_disk=s.get("statistics", {}).get("sizeOnDisk", 0),
             )
             for s in item.get("seasons", [])
         ]
@@ -101,4 +102,5 @@ class SonarrClient(ArrClientBase):
             total_episode_count=total,
             series_id=item.get("id"),
             seasons=seasons,
+            size_on_disk=stats.get("sizeOnDisk") or None,
         )

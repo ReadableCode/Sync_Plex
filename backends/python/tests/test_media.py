@@ -1,3 +1,8 @@
+import asyncio
+
+import httpx
+import pytest
+
 from engine.media.aggregation import merge_lookups
 from engine.media.clients import RadarrClient, SonarrClient
 from engine.media.config import ArrInstance, MediaConfig, load_media_config
@@ -104,6 +109,58 @@ def test_merge_lookups_marks_unreachable_instance():
     assert "boom" in status_b.error
 
 
+def test_merge_lookups_unreachable_error_never_empty():
+    """httpx timeouts stringify to '' — the badge must still say what happened."""
+    item = {"title": "Severance", "year": 2022, "tvdbId": 371980}
+    merged = merge_lookups(
+        {
+            "sonarr-a": {"results": [item], "library": {}},
+            "sonarr-b": httpx.ReadTimeout(""),
+        },
+        MediaType.TV,
+        _tv_config(),
+    )
+    assert merged[0].status_for("sonarr-b").error == "ReadTimeout"
+
+
+def _mock_arr_client(client: SonarrClient, handler) -> None:
+    """Route the client's HTTP through a MockTransport, preserving the timeout kwarg."""
+    client._client = lambda timeout=None: httpx.AsyncClient(  # type: ignore[method-assign]
+        transport=httpx.MockTransport(handler), base_url=client.instance.base_url
+    )
+
+
+def test_arr_get_retries_transient_transport_error():
+    """One dropped connection or slow read must not mark a healthy server unreachable."""
+    client = SonarrClient(ArrInstance(name="sonarr-a", base_url="http://a", api_key="k"))
+    calls = {"n": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise httpx.ReadTimeout("slow", request=request)
+        return httpx.Response(200, json=[{"title": "x"}])
+
+    _mock_arr_client(client, handler)
+    assert asyncio.run(client.get_library()) == [{"title": "x"}]
+    assert calls["n"] == 2
+
+
+def test_arr_ping_does_not_retry():
+    """Ping reports a single honest round trip — a retried ping would double it."""
+    client = SonarrClient(ArrInstance(name="sonarr-a", base_url="http://a", api_key="k"))
+    calls = {"n": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls["n"] += 1
+        raise httpx.ConnectError("down", request=request)
+
+    _mock_arr_client(client, handler)
+    with pytest.raises(httpx.ConnectError):
+        asyncio.run(client.ping_ms())
+    assert calls["n"] == 1
+
+
 def test_merge_movie_status_comes_from_library_not_lookup():
     """Radarr lookup leaves hasFile empty even for downloaded movies — the
     library record must win, or every downloaded movie renders as partial."""
@@ -130,12 +187,17 @@ def test_merge_movie_status_comes_from_library_not_lookup():
 def test_sonarr_status_missing_episodes():
     client = SonarrClient(ArrInstance(name="sonarr-a", base_url="http://a", api_key="k"))
     status = client.to_status(
-        {"id": 7, "monitored": True, "statistics": {"episodeCount": 10, "episodeFileCount": 6}}
+        {
+            "id": 7,
+            "monitored": True,
+            "statistics": {"episodeCount": 10, "episodeFileCount": 6, "sizeOnDisk": 40_000_000_000},
+        }
     )
     assert status.state == PresenceState.MONITORED_INCOMPLETE
     assert status.missing_episode_count == 4
     assert status.total_episode_count == 10
     assert status.series_id == 7
+    assert status.size_on_disk == 40_000_000_000
 
 
 def test_sonarr_status_extracts_seasons():
@@ -150,7 +212,12 @@ def test_sonarr_status_extracts_seasons():
                 {
                     "seasonNumber": 1,
                     "monitored": True,
-                    "statistics": {"episodeFileCount": 10, "episodeCount": 10, "totalEpisodeCount": 10},
+                    "statistics": {
+                        "episodeFileCount": 10,
+                        "episodeCount": 10,
+                        "totalEpisodeCount": 10,
+                        "sizeOnDisk": 24_000_000_000,
+                    },
                 },
                 {
                     "seasonNumber": 2,
@@ -163,10 +230,12 @@ def test_sonarr_status_extracts_seasons():
     assert len(status.seasons) == 3
     s1 = next(s for s in status.seasons if s.season_number == 1)
     assert s1.monitored and s1.episode_file_count == 10 and s1.episode_count == 10
+    assert s1.size_on_disk == 24_000_000_000
     s2 = next(s for s in status.seasons if s.season_number == 2)
     assert not s2.monitored and s2.episode_file_count == 0
     # unmonitored seasons report 0 monitored eps but keep the real total
     assert s2.total_episode_count == 22
+    assert s2.size_on_disk == 0
 
 
 def test_sonarr_status_nothing_monitored_is_not_complete():
@@ -202,3 +271,14 @@ def test_radarr_status_has_file():
     assert client.to_status({"id": 7, "hasFile": False}).state == PresenceState.MONITORED_INCOMPLETE
     assert client.to_status(None).state == PresenceState.NOT_PRESENT
     assert client.to_status({"title": "x"}).state == PresenceState.NOT_PRESENT
+
+
+def test_radarr_status_size_on_disk():
+    client = RadarrClient(ArrInstance(name="radarr-a", base_url="http://a", api_key="k"))
+    # v3/v4 top-level field
+    assert client.to_status({"id": 7, "hasFile": True, "sizeOnDisk": 8_000_000_000}).size_on_disk == 8_000_000_000
+    # v5 moved it under statistics
+    status = client.to_status({"id": 7, "hasFile": True, "statistics": {"sizeOnDisk": 9_000_000_000}})
+    assert status.size_on_disk == 9_000_000_000
+    # not downloaded -> no size rather than a misleading 0-byte label
+    assert client.to_status({"id": 7, "hasFile": False, "sizeOnDisk": 0}).size_on_disk is None

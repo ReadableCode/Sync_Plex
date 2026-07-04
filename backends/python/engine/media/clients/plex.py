@@ -31,10 +31,19 @@ class PlexClient:
         )
 
     async def _search(self, title: str) -> list[dict]:
-        async with self._client() as client:
-            resp = await client.get("/library/all", params={"title": title, "includeGuids": "1"})
-            resp.raise_for_status()
-            return resp.json().get("MediaContainer", {}).get("Metadata", []) or []
+        # One retry on transport errors — a dropped connection must not render
+        # a healthy server as "unreachable" in the detail view.
+        last_exc: httpx.TransportError | None = None
+        for _ in range(2):
+            try:
+                async with self._client() as client:
+                    resp = await client.get("/library/all", params={"title": title, "includeGuids": "1"})
+                    resp.raise_for_status()
+                    return resp.json().get("MediaContainer", {}).get("Metadata", []) or []
+            except httpx.TransportError as exc:
+                last_exc = exc
+        assert last_exc is not None
+        raise last_exc
 
     async def ping_ms(self) -> float:
         """Round-trip time of the lightweight /identity endpoint, in milliseconds."""
@@ -48,7 +57,8 @@ class PlexClient:
         try:
             items = await self._search(result.title)
         except Exception as exc:  # noqa: BLE001 — one server down must not break the check
-            return PlexAvailability(server=self.name, available=False, error=str(exc))
+            # timeouts stringify to "" and the UIs branch on error truthiness
+            return PlexAvailability(server=self.name, available=False, error=str(exc) or type(exc).__name__)
 
         wanted_type = _PLEX_TYPES[result.media_type]
         wanted_guids = set()

@@ -152,6 +152,16 @@ def _short(instance_name: str) -> str:
     return instance_name.split("-", 1)[-1]
 
 
+def _season_chip(season) -> str:
+    """'✓S2 8/10 · 19.1 GB' — monitoring, have/total, and the season folder size."""
+    mark = "✓" if season.monitored else "✗"
+    label = "SP" if season.season_number == 0 else f"S{season.season_number}"
+    chip = f"{mark}{label} {season.episode_file_count}/{season.total_episode_count or season.episode_count}"
+    if season.size_on_disk:
+        chip += f" · {format_bytes(season.size_on_disk)}"
+    return chip
+
+
 def _stats_line(health: ServerHealth) -> str:
     """'812 shows · 24,331 episodes · 18.9 TB' — only the parts this server has."""
     parts = []
@@ -306,12 +316,12 @@ def run_web(host: str = "127.0.0.1", port: int = 8788) -> None:
                                 and status.missing_episode_count is not None
                             ):
                                 line += f" — missing {status.missing_episode_count}/{status.total_episode_count} eps"
+                            if status.size_on_disk:
+                                line += f" · {format_bytes(status.size_on_disk)}"
                             ui.label(line).classes(state_class)
                             if status.seasons:
                                 chips = "  ".join(
-                                    f"{'✓' if s.monitored else '✗'}"
-                                    f"{'SP' if s.season_number == 0 else 'S' + str(s.season_number)}"
-                                    f" {s.episode_file_count}/{s.total_episode_count or s.episode_count}"
+                                    _season_chip(s)
                                     for s in sorted(
                                         status.seasons, key=lambda s: (s.season_number == 0, s.season_number)
                                     )

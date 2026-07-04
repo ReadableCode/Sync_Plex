@@ -9,6 +9,12 @@ from ..config import ArrInstance
 
 DEFAULT_TIMEOUT = 8.0
 
+# Lookup proxies to the arr's external metadata service and a full library dump
+# runs to tens of MB on a big instance — both can legitimately outlast the
+# default read window while the server is perfectly healthy. Connect stays at
+# the default so a genuinely down host still fails fast.
+SLOW_READ_TIMEOUT = httpx.Timeout(DEFAULT_TIMEOUT, read=30.0)
+
 
 class ArrClientBase:
     def __init__(self, instance: ArrInstance, timeout: float = DEFAULT_TIMEOUT):
@@ -19,18 +25,33 @@ class ArrClientBase:
     def name(self) -> str:
         return self.instance.name
 
-    def _client(self) -> httpx.AsyncClient:
+    def _client(self, timeout: httpx.Timeout | float | None = None) -> httpx.AsyncClient:
         return httpx.AsyncClient(
             base_url=self.instance.base_url,
             headers={"X-Api-Key": self.instance.api_key},
-            timeout=self.timeout,
+            timeout=self.timeout if timeout is None else timeout,
         )
 
-    async def _get(self, path: str, params: dict | None = None) -> Any:
-        async with self._client() as client:
-            resp = await client.get(path, params=params)
-            resp.raise_for_status()
-            return resp.json()
+    async def _get(
+        self,
+        path: str,
+        params: dict | None = None,
+        timeout: httpx.Timeout | float | None = None,
+        retries: int = 1,
+    ) -> Any:
+        """GET with retry on transient transport errors — one dropped connection
+        or slow read must not surface a healthy server as unreachable."""
+        last_exc: httpx.TransportError | None = None
+        for _ in range(retries + 1):
+            try:
+                async with self._client(timeout) as client:
+                    resp = await client.get(path, params=params)
+                    resp.raise_for_status()
+                    return resp.json()
+            except httpx.TransportError as exc:
+                last_exc = exc
+        assert last_exc is not None
+        raise last_exc
 
     async def _post(self, path: str, payload: dict) -> Any:
         async with self._client() as client:
@@ -39,9 +60,13 @@ class ArrClientBase:
             return resp.json()
 
     async def ping_ms(self) -> float:
-        """Round-trip time of the cheapest authenticated endpoint, in milliseconds."""
+        """Round-trip time of the cheapest authenticated endpoint, in milliseconds.
+
+        No retry: a retried ping would report double the real latency, and
+        liveness should reflect a single honest round trip.
+        """
         start = time.perf_counter()
-        await self._get("/api/v3/system/status")
+        await self._get("/api/v3/system/status", retries=0)
         return (time.perf_counter() - start) * 1000
 
     async def disk_space(self) -> list[dict]:

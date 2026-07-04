@@ -13,6 +13,7 @@ from .aggregation import (
     search_everywhere,
 )
 from .config import load_media_config
+from .health import format_bytes
 from .models import AggregatedResult, MediaType, PresenceState
 
 media_app = typer.Typer(name="media", help="Search/add media across all Sonarr/Radarr/Plex instances")
@@ -56,6 +57,8 @@ def _render_result(aggregated: AggregatedResult) -> None:
                 detail = f"  missing {s.missing_episode_count}/{s.total_episode_count} episodes"
         elif s.state == PresenceState.UNREACHABLE:
             detail = f"  unreachable: {s.error[:60]}"
+        if s.size_on_disk:
+            detail += f"  · {format_bytes(s.size_on_disk)}"
         typer.echo(f"    {glyph} {s.instance:<20} {s.state.value}{detail}")
     for p in aggregated.plex:
         glyph = "▶" if p.available else "·"
@@ -180,7 +183,8 @@ def seasons(
             mon = "monitored  " if season.monitored else "unmonitored"
             denominator = season.total_episode_count or season.episode_count
             counts = f"{season.episode_file_count}/{denominator}" if denominator else "—"
-            typer.echo(f"      {_season_label(season.season_number):<9} {mon} {counts:>7}")
+            size = f"  {format_bytes(season.size_on_disk)}" if season.size_on_disk else ""
+            typer.echo(f"      {_season_label(season.season_number):<9} {mon} {counts:>7}{size}")
             if episodes:
                 for ep in (e for e in eps if e.season_number == season.season_number):
                     glyph = "✓" if ep.has_file else ("○" if ep.monitored else "·")
