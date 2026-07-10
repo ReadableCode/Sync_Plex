@@ -1,0 +1,24 @@
+# Sync_Plex media remote web UI (NiceGUI). Pulled into
+# Docker/docker_compose_projects.yaml via `include:`; the include entry sets
+# project_directory to this repo's root, so relative paths resolve from here.
+# Talks to sonarr/radarr/plex over the LAN rather than to other compose
+# services, so no depends_on. The inventory is mounted read-only from the
+# personal_credentials repo, and API keys/tokens come from the same repo's
+# personal.env via env_file (same file this repo's .env symlinks to).
+services:
+  syncplex-web:
+    image: syncplex_web_image
+    build:
+      context: ./backends/python
+      dockerfile: Dockerfile
+    container_name: syncplex_web
+    environment:
+      TZ: America/Chicago
+      SYNCPLEX_HOSTS: /config/hosts.json
+    env_file:
+      - ../personal_credentials/personal.env
+    volumes:
+      - ../personal_credentials/hosts.json:/config/hosts.json:ro
+    ports:
+      - "8788:8788"
+    restart: unless-stopped
