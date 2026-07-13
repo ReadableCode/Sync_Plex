@@ -1,9 +1,11 @@
 import typer
 
 from .media.cli import media_app
+from .web.users_cli import users_app
 
 app = typer.Typer(name="syncplex", help="Sync_Plex — household media remote")
 app.add_typer(media_app)
+app.add_typer(users_app)
 
 
 @app.command()

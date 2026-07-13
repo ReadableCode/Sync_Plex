@@ -26,8 +26,13 @@ Sync_Plex/
 │   │   │   ├── models.py             # pydantic domain models (AggregatedResult, ...)
 │   │   │   ├── aggregation.py        # search_everywhere, add_to_instance, plex checks
 │   │   │   ├── clients/              # httpx async clients: sonarr, radarr, plex
+│   │   │   ├── requests.py           # request queue (users request, admins approve)
 │   │   │   └── tui/app.py            # Textual TUI (couch/SSH use)
-│   │   └── web/app.py            # NiceGUI web UI (phone use, Tailscale-bound)
+│   │   └── web/                  # NiceGUI web UI (phone use) + its auth
+│   │       ├── app.py                # pages: /login, /, /requests
+│   │       ├── users.py              # accounts: argon2id hashes, admin/user roles
+│   │       ├── auth.py               # sessions, login rate limiting
+│   │       └── users_cli.py          # `syncplex users ...`
 │   └── tests/
 ├── cli/syncplex              # shell wrapper: uv run into backends/python
 ├── src/                      # legacy selective sync scripts (untouched)
@@ -90,6 +95,7 @@ expected keys).
 | `syncplex tui` | Launch the TUI (Textual): media remote + sync jobs screen (`ctrl+s`) |
 | `syncplex media tui` | Same TUI (kept for muscle memory) |
 | `syncplex web [--host IP] [--port 8788]` | Launch the media remote web UI (NiceGUI) |
+| `syncplex users add\|list\|passwd\|role\|disable\|enable\|remove` | Manage web UI accounts (see "Web UI: login, users & roles") |
 
 All data commands support `--json`, which is how native UI shells consume the
 engine as a subprocess.
@@ -110,11 +116,84 @@ Statuses merge by TVDB/TMDB id (never by title string), one instance being
 down degrades to a `✗ unreachable` row instead of breaking the search, and
 Plex rows tell you whether it's actually watch-ready.
 
+### Web UI: login, users & roles
+
+The web UI has its own login — it no longer needs (or sits behind) Authelia.
+Accounts live in `<data dir>/users.json` (argon2id hashes only, never
+plaintext) and are managed with the `syncplex users` CLI. Two roles:
+
+| Role | Can do |
+| --- | --- |
+| `admin` | Everything: add titles directly to any Sonarr/Radarr instance, and work the approval queue at `/requests` |
+| `user` | Search everything, but only **request** titles — nothing downloads until an admin approves the request and picks the server |
+
+The data dir is `$SYNCPLEX_DATA_DIR` (the docker deployment mounts a host dir
+there) or `~/.config/syncplex` otherwise. It also holds `requests.json` (the
+request queue) — back it up if you care about request history.
+
+#### Create an admin (that's you)
+
+```bash
+syncplex users add jason --role admin        # prompts for the password twice
+```
+
+In the docker deployment, run it inside the container (same data volume):
+
+```bash
+sudo docker exec -it syncplex_web syncplex users add jason --role admin
+```
+
+The first account must be created this way — with zero accounts nobody can
+log in (the login page tells you so). To promote someone later:
+`syncplex users role <name> admin`.
+
+#### Create a normal user (request-only)
+
+```bash
+sudo docker exec -it syncplex_web syncplex users add friendname
+# or explicitly: ... users add friendname --role user
+```
+
+Hand them the URL, their username, and the password you set. They log in,
+search, and hit **request** on anything missing; you'll see a pending count
+on the `requests` link in the header, pick a server in the queue, and
+approve (which triggers the actual Sonarr/Radarr add, monitored + immediate
+search) or deny (optionally with a reason they'll see). A failed add keeps
+the request pending with the error attached so you can retry on another
+server. Users can withdraw their own pending requests.
+
+Other account chores (all take effect in the running app without a restart):
+
+```bash
+syncplex users list
+syncplex users passwd friendname     # also logs out their sessions
+syncplex users disable friendname    # locks the account + kills sessions
+syncplex users enable friendname
+syncplex users remove friendname
+```
+
+#### Login hardening (why Authelia isn't needed)
+
+- argon2id password hashing (same algorithm Authelia used); unknown
+  usernames verify against a dummy hash so response timing can't enumerate
+  accounts
+- lockout: 5 failed attempts on a username **or** source IP within 15
+  minutes locks that key for 15 minutes (mirrors Authelia's regulation)
+- sessions are server-side; the browser only gets a signed session-id
+  cookie. Set `SYNCPLEX_SESSION_SECRET` (see `.env.example`) so sessions
+  survive restarts — without it a random per-boot secret is used
+- sessions last 30 days max and die immediately on password change,
+  disable, or account removal
+- passwords: 10 character minimum, prompted (never CLI args), never logged
+
+TLS still comes from the reverse proxy (SWAG) in front — keep serving it
+over HTTPS. The old Authelia forward-auth include for
+`syncplex.tinkernet.me` is removed in server_configs.
+
 ### Web UI deployment
 
-Runs as a single process; bind it to your Tailscale IP on an always-on box so
-phones on the tailnet can reach it. Never expose it publicly — there is no
-auth layer by design (tailnet membership is the auth).
+Runs as a single process behind SWAG (see `deploy/compose.elitedesk.yaml`),
+or bind it to your Tailscale IP on an always-on box:
 
 ```bash
 syncplex web --host 100.x.x.x --port 8788

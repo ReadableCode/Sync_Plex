@@ -10,6 +10,7 @@ dependencies = [
     "python-dotenv>=1.2.2",
     "textual>=8.2.8",
     "nicegui>=3.14.0",
+    "argon2-cffi>=25.1.0",
 ]
 
 [project.scripts]
