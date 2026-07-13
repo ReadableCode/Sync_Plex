@@ -502,11 +502,14 @@ def run_web(host: str = "127.0.0.1", port: int = 8788) -> None:  # noqa: C901 �
                                 "flat no-caps"
                             ).classes("w-full")
                         return
-                    if all(s.state != PresenceState.NOT_PRESENT for s in aggregated.statuses):
+                    absent = [s for s in aggregated.statuses if s.state == PresenceState.NOT_PRESENT]
+                    if not absent:
                         return  # nothing to request — every server has it (or is down)
-                    ui.button("request this title", on_click=do_request).classes("w-full").props(
-                        "size=lg color=positive text-color=dark"
-                    )
+                    # worst case across the servers an admin could put it on
+                    estimate = max(estimate_add_bytes(aggregated, state["health"].get(s.instance)) for s in absent)
+                    ui.button(
+                        f"request this title · ~{format_bytes(estimate)}", on_click=do_request
+                    ).classes("w-full").props("size=lg color=positive text-color=dark")
                     ui.label("an admin approves it and picks the server before anything downloads").classes(
                         "text-xs muted"
                     )
@@ -567,11 +570,8 @@ def run_web(host: str = "127.0.0.1", port: int = 8788) -> None:  # noqa: C901 �
         with ui.column().classes("w-full max-w-2xl mx-auto p-4 gap-3"):
             _nav(user)
             health_row = ui.row().classes("w-full gap-3 items-stretch")
-            if user.is_admin:
-                # server health powers the add-size estimates — admin-only,
-                # requesters don't pick servers so they don't need the noise
-                render_health()
-                ui.timer(60.0, refresh_health)  # fires immediately, then every minute
+            render_health()
+            ui.timer(60.0, refresh_health)  # fires immediately, then every minute
             with ui.row().classes("items-center w-full no-wrap gap-3"):
                 search_box = (
                     ui.input(placeholder="search…", on_change=do_search)
