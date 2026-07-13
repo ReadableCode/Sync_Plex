@@ -143,6 +143,9 @@ In the docker deployment, run it inside the container (same data volume):
 sudo docker exec -it syncplex_web syncplex users add jason --role admin
 ```
 
+(`syncplex` not found in the container? The image predates the venv being on
+PATH — rebuild, or use the full path `/app/.venv/bin/syncplex`.)
+
 The first account must be created this way — with zero accounts nobody can
 log in (the login page tells you so). To promote someone later:
 `syncplex users role <name> admin`.
