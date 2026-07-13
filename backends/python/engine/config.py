@@ -35,6 +35,18 @@ def get_inventory_path() -> Path | None:
     return None
 
 
+def get_data_dir() -> Path:
+    """Writable state dir (web UI user accounts, media requests).
+
+    SYNCPLEX_DATA_DIR overrides (the docker deployment mounts a host dir at
+    /data and sets it); default is ~/.config/syncplex.
+    """
+    env_dir = os.environ.get("SYNCPLEX_DATA_DIR")
+    directory = Path(env_dir).expanduser() if env_dir else Path.home() / ".config" / "syncplex"
+    directory.mkdir(parents=True, exist_ok=True)
+    return directory
+
+
 def load_env() -> None:
     """Load .env from the repo root (and CWD as fallback). Idempotent, safe to call often."""
     from dotenv import load_dotenv

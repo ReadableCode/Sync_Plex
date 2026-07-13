@@ -4,7 +4,10 @@
 # Talks to sonarr/radarr/plex over the LAN rather than to other compose
 # services, so no depends_on. The inventory is mounted read-only from the
 # personal_credentials repo, and API keys/tokens come from the same repo's
-# personal.env via env_file (same file this repo's .env symlinks to).
+# personal.env via env_file (same file this repo's .env symlinks to) —
+# including SYNCPLEX_SESSION_SECRET, which signs login session cookies.
+# /data holds users.json + requests.json (login accounts, request queue);
+# manage accounts with:  sudo docker exec -it syncplex_web syncplex users ...
 services:
   syncplex-web:
     image: syncplex_web_image
@@ -15,10 +18,12 @@ services:
     environment:
       TZ: America/Chicago
       SYNCPLEX_HOSTS: /config/hosts.json
+      SYNCPLEX_DATA_DIR: /data
     env_file:
       - ../personal_credentials/personal.env
     volumes:
       - ../personal_credentials/hosts.json:/config/hosts.json:ro
+      - /home/jason/docker_app_data/syncplex:/data
     ports:
       - "8788:8788"
     restart: unless-stopped
