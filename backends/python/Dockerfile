@@ -20,6 +20,11 @@ COPY engine/ ./engine/
 
 RUN uv sync --frozen --no-dev
 
+# Venv on PATH so `docker exec -it syncplex_web syncplex users ...` works as
+# documented in README "Web UI: login, users & roles" (account management
+# happens via exec into this container).
+ENV PATH="/app/.venv/bin:$PATH"
+
 EXPOSE 8788
 
 # Inventory path comes from SYNCPLEX_HOSTS (compose mounts hosts.json at
