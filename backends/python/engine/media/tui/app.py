@@ -1,9 +1,9 @@
 """syncplex TUI — a thin Textual layer over the engine package.
 
-The media screen wires user actions to engine/media core functions; the sync
-screen lists the legacy selective-sync jobs (engine.sync_jobs) and can hand
-off to src/selective_sync.py. Styling follows the readablecode
-"terminal navy" design system (dotfiles design/STYLE.md).
+The media screen wires user actions to engine/media core functions; the
+drive-sync screen (ctrl+s) shells out to `syncplex-drive-sync` and streams
+its output. Styling follows the readablecode "terminal navy" design system
+(dotfiles design/STYLE.md).
 """
 
 import asyncio
@@ -14,10 +14,17 @@ from textual.app import App, ComposeResult
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import ModalScreen, Screen
 from textual.theme import Theme
-from textual.widgets import Button, DataTable, Footer, Header, Input, RichLog, Static, Tree
+from textual.widgets import (
+    Button,
+    DataTable,
+    Footer,
+    Header,
+    Input,
+    RichLog,
+    Static,
+)
 
 from ...config import REPO_ROOT
-from ...sync_jobs import load_sync_jobs
 from ..aggregation import (
     add_to_instance,
     check_plex_availability,
@@ -84,13 +91,13 @@ STATE_LABELS = {
 }
 
 
-class ConfirmSyncScreen(ModalScreen[bool]):
-    """Explicit confirmation before handing off to the destructive legacy script."""
+class ConfirmDriveSyncScreen(ModalScreen[bool]):
+    """Explicit confirmation before the destructive drive-sync run."""
 
     BINDINGS = [("escape", "dismiss(False)", "cancel")]
 
     CSS = f"""
-    ConfirmSyncScreen {{
+    ConfirmDriveSyncScreen {{
         align: center middle;
         background: {BG} 60%;
     }}
@@ -107,17 +114,21 @@ class ConfirmSyncScreen(ModalScreen[bool]):
     }}
     """
 
+    def __init__(self, path: str) -> None:
+        super().__init__()
+        self.path = path
+
     def compose(self) -> ComposeResult:
         with Vertical(id="confirm-box"):
             yield Static(
-                f"[bold {AMBER_BRIGHT}]run ALL sync jobs?[/]\n\n"
-                f"this hands off to [bold]src/selective_sync.py[/], which mirrors every "
-                f"configured source (robocopy /MIR) and then [bold {RED}]prunes[/] anything "
-                f"not in the configuration from the destinations. every job in "
-                f"sync_config.json runs — there is no per-job selection."
+                f"[bold {AMBER_BRIGHT}]sync drive?[/]\n\n"
+                f"destination: [bold]{self.path}[/]\n\n"
+                f"mirrors the shows/movies from the drive's config.yaml onto it and "
+                f"[bold {RED}]deletes[/] anything under TV/ and Movies/ that is no "
+                f"longer wanted."
             )
             with Horizontal():
-                yield Button("run all jobs", variant="error", id="confirm-run")
+                yield Button("sync drive", variant="error", id="confirm-run")
                 yield Button("cancel", id="confirm-cancel")
 
     @on(Button.Pressed, "#confirm-run")
@@ -131,27 +142,24 @@ class ConfirmSyncScreen(ModalScreen[bool]):
         self.dismiss(False)
 
 
-class SyncScreen(Screen):
-    """Selective-sync jobs from the root sync_config.json (legacy script stays the engine)."""
+class DriveSyncScreen(Screen):
+    """Drive sync: type the destination path, hit enter, watch it run."""
 
     BINDINGS = [
         ("escape", "back", "media"),
-        ("R", "run_sync", "run all jobs"),
     ]
 
     CSS = f"""
-    SyncScreen #sync-jobs {{
-        height: 1fr;
-        padding: 0 1;
-        background: $background;
-    }}
-    SyncScreen #sync-empty {{
-        height: 1fr;
-        padding: 1 2;
+    DriveSyncScreen #drive-help {{
+        padding: 1 2 0 2;
         color: {MUTED};
     }}
-    SyncScreen #sync-log {{
-        height: 12;
+    DriveSyncScreen #drive-path {{
+        margin: 1 1 0 1;
+    }}
+    DriveSyncScreen #sync-log {{
+        height: 1fr;
+        margin-top: 1;
         border-top: solid {HAIRLINE};
         background: $surface;
         padding: 0 1;
@@ -160,63 +168,58 @@ class SyncScreen(Screen):
 
     def __init__(self) -> None:
         super().__init__()
-        self.jobs = load_sync_jobs()
         self._sync_running = False
 
     def compose(self) -> ComposeResult:
         yield Header()
-        if self.jobs:
-            yield Tree("sync jobs", id="sync-jobs")
-        else:
-            yield Static("no sync_config.json found", id="sync-empty")
+        yield Static(
+            "mirror the shows/movies from a drive's config.yaml onto it "
+            "(deletes what's no longer wanted). enter the destination path:",
+            id="drive-help",
+        )
+        yield Input(placeholder="/Volumes/MyDrive/Media", id="drive-path")
         yield RichLog(id="sync-log", wrap=True)
         yield Footer()
 
     def on_mount(self) -> None:
-        count = len(self.jobs)
-        self.sub_title = f"sync — {count} job{'s' if count != 1 else ''}" if self.jobs else "sync"
-        log = self.query_one(RichLog)
-        log.write(Text("R runs ALL jobs via src/selective_sync.py (mirror + prune).", style=MUTED))
-        if not self.jobs:
-            return
-        tree = self.query_one(Tree)
-        tree.show_root = False
-        for job in self.jobs:
-            node = tree.root.add(
-                Text.assemble(
-                    (job.sync_name, "bold"),
-                    "  ",
-                    (f"{job.src_display} → {job.dest_display}", MUTED),
-                ),
-                expand=True,
-            )
-            for subfolder in job.included_subfolders:
-                node.add_leaf(Text("\\".join(subfolder)))
-            for file_parts in job.included_files:
-                node.add_leaf(Text.assemble(("file  ", MUTED), "\\".join(file_parts)))
-            if not job.included_subfolders and not job.included_files:
-                node.add_leaf(Text("(nothing included)", style=MUTED))
-        tree.focus()
+        self.sub_title = "drive sync"
+        self.query_one("#drive-path", Input).focus()
 
     def action_back(self) -> None:
         self.app.pop_screen()
 
-    def action_run_sync(self) -> None:
+    @on(Input.Submitted, "#drive-path")
+    def path_submitted(self, event: Input.Submitted) -> None:
+        event.stop()
         if self._sync_running:
             self.notify("sync already running.", severity="warning")
+            return
+        path = event.value.strip()
+        if not path:
+            self.notify("enter a destination path.", severity="warning")
             return
 
         def _decided(confirmed: bool | None) -> None:
             if confirmed:
-                self.run_all_jobs()
+                self.run_drive_sync(path)
 
-        self.app.push_screen(ConfirmSyncScreen(), _decided)
+        self.app.push_screen(ConfirmDriveSyncScreen(path), _decided)
 
     @work(exclusive=True, group="sync-run")
-    async def run_all_jobs(self) -> None:
+    async def run_drive_sync(self, path: str) -> None:
+        await self._stream_command(["syncplex-drive-sync", path, "--yes"])
+
+    async def _stream_command(self, project_args: list[str]) -> None:
+        """Run a command in the backends/python project, streaming output to the log."""
         self._sync_running = True
         log = self.query_one(RichLog)
-        cmd = ["uv", "run", "--project", str(REPO_ROOT), "python", "src/selective_sync.py"]
+        cmd = [
+            "uv",
+            "run",
+            "--project",
+            str(REPO_ROOT / "backends" / "python"),
+            *project_args,
+        ]
         log.write(Text("$ " + " ".join(cmd), style=f"bold {GREEN_BRIGHT}"))
         try:
             process = await asyncio.create_subprocess_exec(
@@ -287,7 +290,7 @@ class MediaRemote(App):
         ("q", "quit", "quit"),
         ("t", "toggle_type", "tv/movie"),
         ("r", "refresh_selected", "refresh"),
-        ("ctrl+s", "show_sync", "sync"),
+        ("ctrl+s", "show_sync", "drive sync"),
         ("escape", "focus_search", "search"),
     ]
 
@@ -525,7 +528,7 @@ class MediaRemote(App):
         self.query_one(Input).focus()
 
     def action_show_sync(self) -> None:
-        self.push_screen(SyncScreen())
+        self.push_screen(DriveSyncScreen())
 
 
 def run_tui() -> None:

@@ -4,13 +4,17 @@ from .media.cli import media_app
 from .web.users_cli import users_app
 
 app = typer.Typer(name="syncplex", help="Sync_Plex — household media remote")
-app.add_typer(media_app)
+
+# Media commands are registered flat (syncplex search / seasons / add /
+# instances) — no `syncplex media ...` nesting.
+app.registered_commands.extend(media_app.registered_commands)
+
 app.add_typer(users_app)
 
 
 @app.command()
 def tui():
-    """Launch the TUI (media remote + sync jobs screen)."""
+    """Launch the TUI (media remote + drive sync screen)."""
     from .media.tui.app import run_tui
 
     run_tui()

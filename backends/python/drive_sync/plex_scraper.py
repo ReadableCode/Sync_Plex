@@ -12,20 +12,19 @@ import time
 
 import pandas as pd
 import yaml
-from dotenv import load_dotenv
-
-from config import parent_dir  # noqa: F401
-from plex_api_wrapper import (
-    get_dict_plex_movie_data,
-    get_dict_plex_show_data,
-    get_episode_data_for_season_key,
-    get_seasons_data_for_show_id,
-)
-from utils.display_tools import (  # noqa: F401
+from dotenv import find_dotenv, load_dotenv
+from readable_utils.display_tools import (  # noqa: F401
     pprint_df,
     pprint_dict,
     pprint_ls,
     print_logger,
+)
+
+from drive_sync.plex_api_wrapper import (
+    get_dict_plex_movie_data,
+    get_dict_plex_show_data,
+    get_episode_data_for_season_key,
+    get_seasons_data_for_show_id,
 )
 
 # %%
@@ -42,9 +41,7 @@ elif OPERATING_SYSTEM == "Darwin":
 else:
     print(f"Running on an unknown system: {OPERATING_SYSTEM}")
 
-DOTENV_PATH = os.path.join(parent_dir, ".env")
-if os.path.exists(DOTENV_PATH):
-    load_dotenv(DOTENV_PATH)
+load_dotenv(find_dotenv(usecwd=True))
 
 # %%
 # Configuration #
@@ -422,34 +419,40 @@ def print_status(df_actions, current_task=""):
         lambda x: os.path.basename(x)
     )
 
-    os.system("cls" if OPERATING_SYSTEM == "Windows" else "clear")
+    # When output is piped (e.g. streamed into the syncplex TUI log), skip the
+    # screen clearing and the full table redraw — just emit the progress lines.
+    is_tty = sys.stdout.isatty()
+
+    if is_tty:
+        os.system("cls" if OPERATING_SYSTEM == "Windows" else "clear")
     print("=" * 150)
     print(f"Status: {current_task}")
     print("=" * 150)
     df_actions["size"] = df_actions["server_file_size_gb"].fillna(
         df_actions["dest_file_size_gb"]
     )
-    pprint_df(
-        df_actions[
-            [
-                "status",
-                "media_type",
-                "title",
-                "season",
-                "episode_number",
-                # "episode_title",
-                "sync_state",
-                # "size_diff_gb",
-                # "server_file_size_gb",
-                # "dest_file_size_gb",
-                "size",
-                # "server_path",
-                "dest_path",
-                # "view_count",
-                # "quality_this_part",
+    if is_tty:
+        pprint_df(
+            df_actions[
+                [
+                    "status",
+                    "media_type",
+                    "title",
+                    "season",
+                    "episode_number",
+                    # "episode_title",
+                    "sync_state",
+                    # "size_diff_gb",
+                    # "server_file_size_gb",
+                    # "dest_file_size_gb",
+                    "size",
+                    # "server_path",
+                    "dest_path",
+                    # "view_count",
+                    # "quality_this_part",
+                ]
             ]
-        ]
-    )
+        )
 
     # print sum of files to delete, sum of files to download sizes
     size_of_files_deleted = df_actions[
@@ -581,9 +584,10 @@ def apply_sync(df_actions, destination_root_path):
 # Main #
 
 
-if __name__ == "__main__":
+def main():
     start_time = time.time()
     destination_root_path = "/Users/jason/Media/"
+    assume_yes = False
     if "ipykernel" in sys.argv[0]:
         print("Running in IPython kernel")
     else:
@@ -595,11 +599,18 @@ if __name__ == "__main__":
             default=destination_root_path,
             help="Folder path to pull config and sync",
         )
+        parser.add_argument(
+            "-y",
+            "--yes",
+            action="store_true",
+            help="Skip the confirmation prompt and start syncing immediately",
+        )
 
         args = parser.parse_args()
 
         if args.path:
             destination_root_path = os.path.abspath(args.path)
+        assume_yes = args.yes
 
     print_logger(f"Path to sync: {destination_root_path}")
 
@@ -681,20 +692,23 @@ if __name__ == "__main__":
     df_actions["status"] = "pending"
     print_status(df_actions, "User Confirmation")
 
-    user_string = input(
-        "Type 'sync' to start the download process, or 'exit' to exit: "
-    )
-    if user_string.lower() == "exit":
-        print_logger("Exiting...")
-        exit()
-    elif user_string.lower() != "sync":
-        print_logger(
-            "Invalid input. Exiting...",
-            level="error",
-        )
-        exit()
+    if assume_yes:
+        print_logger("--yes given, starting sync process...")
     else:
-        print_logger("Starting sync process...")
+        user_string = input(
+            "Type 'sync' to start the download process, or 'exit' to exit: "
+        )
+        if user_string.lower() == "exit":
+            print_logger("Exiting...")
+            exit()
+        elif user_string.lower() != "sync":
+            print_logger(
+                "Invalid input. Exiting...",
+                level="error",
+            )
+            exit()
+        else:
+            print_logger("Starting sync process...")
 
     apply_sync(df_actions, destination_root_path)
 
@@ -702,3 +716,7 @@ if __name__ == "__main__":
 
 
 # %%
+
+
+if __name__ == "__main__":
+    main()

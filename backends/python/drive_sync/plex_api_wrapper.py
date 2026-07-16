@@ -3,18 +3,10 @@
 
 
 import os
-import platform
-import subprocess
-import time
-import xml.etree.ElementTree as ET
 
-import pandas as pd
 import requests
-import yaml
-from dotenv import load_dotenv
-
-from config import grandparent_dir, parent_dir  # noqa: F401
-from utils.display_tools import (  # noqa: F401
+from dotenv import find_dotenv, load_dotenv
+from readable_utils.display_tools import (  # noqa: F401
     pprint_df,
     pprint_dict,
     pprint_ls,
@@ -25,12 +17,17 @@ from utils.display_tools import (  # noqa: F401
 # Variables #
 
 
-DOTENV_PATH = os.path.join(parent_dir, ".env")
-if os.path.exists(DOTENV_PATH):
-    load_dotenv(DOTENV_PATH)
+# Walk up from the cwd to find the repo's .env; env vars are read lazily so
+# importing this module never fails on a machine without Plex credentials.
+load_dotenv(find_dotenv(usecwd=True))
 
-PLEX_SERVER = os.environ["PLEX_SERVER"]
-TOKEN = os.environ["PLEX_TOKEN"]
+
+def get_plex_server():
+    return os.environ["PLEX_SERVER"]
+
+
+def get_plex_token():
+    return os.environ["PLEX_TOKEN"]
 
 
 dict_cache = {}
@@ -52,8 +49,8 @@ def get_dict_plex_section_numbers(force_refresh=False):
     if key in dict_cache and not force_refresh:
         return dict_cache[key].copy()
 
-    headers = {"X-Plex-Token": TOKEN, "Accept": "application/json"}
-    response = requests.get(f"{PLEX_SERVER}/library/sections", headers=headers)
+    headers = {"X-Plex-Token": get_plex_token(), "Accept": "application/json"}
+    response = requests.get(f"{get_plex_server()}/library/sections", headers=headers)
     if response.status_code != 200:
         return {}
     sections_data = response.json()
@@ -77,9 +74,9 @@ def get_dict_plex_movie_data(force_update=False):
         return dict_cache[key].copy()
 
     dict_sections = get_dict_plex_section_numbers()
-    headers = {"X-Plex-Token": TOKEN, "Accept": "application/json"}
+    headers = {"X-Plex-Token": get_plex_token(), "Accept": "application/json"}
     response = requests.get(
-        f"{PLEX_SERVER}/library/sections/{dict_sections['Movies']}/all", headers=headers
+        f"{get_plex_server()}/library/sections/{dict_sections['Movies']}/all", headers=headers
     )
     if response.status_code != 200:
         return {}, {}
@@ -101,9 +98,9 @@ def get_dict_plex_show_data(force_update=False):
         return dict_cache[key].copy()
 
     dict_sections = get_dict_plex_section_numbers()
-    headers = {"X-Plex-Token": TOKEN, "Accept": "application/json"}
+    headers = {"X-Plex-Token": get_plex_token(), "Accept": "application/json"}
     all_seasons_response = requests.get(
-        f"{PLEX_SERVER}/library/sections/{dict_sections['TV Shows']}/all",
+        f"{get_plex_server()}/library/sections/{dict_sections['TV Shows']}/all",
         headers=headers,
     )
     if all_seasons_response.status_code != 200:
@@ -125,9 +122,9 @@ def get_seasons_data_for_show_id(show_id, force_update=False):
     if key in dict_cache and not force_update:
         return dict_cache[key].copy()
 
-    headers = {"X-Plex-Token": TOKEN, "Accept": "application/json"}
+    headers = {"X-Plex-Token": get_plex_token(), "Accept": "application/json"}
     all_seasons_response = requests.get(
-        f"{PLEX_SERVER}/library/metadata/{show_id}/children",
+        f"{get_plex_server()}/library/metadata/{show_id}/children",
         headers=headers,
     )
     if all_seasons_response.status_code != 200:
@@ -152,9 +149,9 @@ def get_episode_data_for_season_key(season_key, force_update=False):
     if key in dict_cache and not force_update:
         return dict_cache[key].copy()
 
-    headers = {"X-Plex-Token": TOKEN, "Accept": "application/json"}
+    headers = {"X-Plex-Token": get_plex_token(), "Accept": "application/json"}
     all_episodes_response = requests.get(
-        f"{PLEX_SERVER}/library/metadata/{season_key}/children",
+        f"{get_plex_server()}/library/metadata/{season_key}/children",
         headers=headers,
     )
     if all_episodes_response.status_code != 200:

@@ -26,14 +26,6 @@ STATE_GLYPHS = {
 }
 
 
-@media_app.command()
-def tui():
-    """Launch the media remote TUI (Textual)."""
-    from .tui.app import run_tui
-
-    run_tui()
-
-
 def _echo_warnings(config) -> None:
     for warning in config.warnings:
         typer.secho(f"  ! {warning}", fg=typer.colors.YELLOW, err=True)

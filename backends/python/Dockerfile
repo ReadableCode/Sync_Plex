@@ -14,11 +14,14 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 # installs the project so the `syncplex` console script exists.
 COPY pyproject.toml uv.lock ./
 
-RUN uv sync --frozen --no-dev --no-install-project
+# --no-default-groups excludes dev AND the drive-sync group (whose
+# readable-utils dep lives on a private git remote this build can't reach).
+RUN uv sync --frozen --no-default-groups --no-install-project
 
 COPY engine/ ./engine/
+COPY drive_sync/ ./drive_sync/
 
-RUN uv sync --frozen --no-dev
+RUN uv sync --frozen --no-default-groups
 
 # Venv on PATH so `docker exec -it syncplex_web syncplex users ...` works as
 # documented in README "Web UI: login, users & roles" (account management

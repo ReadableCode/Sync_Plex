@@ -1,7 +1,0 @@
-{
-  "pythonPlatform": "Darwin",
-  "pythonVersion": "3.14",
-  "venvPath": ".",
-  "venv": ".venv",
-  "extraPaths": ["."]
-}

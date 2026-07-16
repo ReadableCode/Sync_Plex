@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# Thin wrapper — runs the drive-sync (plex scraper) entry point via uv.
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+PROJECT_DIR="$SCRIPT_DIR/.."
+
+exec uv run --project "$PROJECT_DIR/backends/python" syncplex-drive-sync "$@"

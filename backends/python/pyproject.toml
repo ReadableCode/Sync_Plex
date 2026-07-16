@@ -15,13 +15,14 @@ dependencies = [
 
 [project.scripts]
 syncplex = "engine.cli:app"
+syncplex-drive-sync = "drive_sync.plex_scraper:main"
 
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["engine"]
+packages = ["engine", "drive_sync"]
 
 [tool.ruff]
 line-length = 120
@@ -38,3 +39,19 @@ dev = [
     "pytest>=9.0.2",
     "ruff>=0.11",
 ]
+# drive-sync deps live in a group (not project.dependencies) so the Docker
+# image stays lean — the web container never imports drive_sync, and pandas
+# et al. are the heaviest packages in the tree. Local `uv sync` installs them
+# via default-groups; the Dockerfile syncs with --no-default-groups.
+drive-sync = [
+    "pandas>=2.2.3",
+    "pyyaml>=6.0.2",
+    "readable-utils",
+    "requests>=2.32.3",
+]
+
+[tool.uv]
+default-groups = ["dev", "drive-sync"]
+
+[tool.uv.sources]
+readable-utils = { git = "https://github.com/ReadableCode/readable_utils.git", tag = "v0.1.1" }

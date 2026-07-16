@@ -1,4 +1,11 @@
-from ..models import EpisodeDetail, InstanceStatus, MediaSearchResult, MediaType, PresenceState, SeasonDetail
+from ..models import (
+    EpisodeDetail,
+    InstanceStatus,
+    MediaSearchResult,
+    MediaType,
+    PresenceState,
+    SeasonDetail,
+)
 from .arr_base import SLOW_READ_TIMEOUT, ArrClientBase, poster_url
 
 

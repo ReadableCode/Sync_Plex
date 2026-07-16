@@ -1,0 +1,7 @@
+{
+  "pythonVersion": "3.14",
+  "venvPath": "backends/python",
+  "venv": ".venv",
+  "extraPaths": ["backends/python"],
+  "exclude": ["**/.venv", "**/__pycache__", "data", "logs", "templates"]
+}

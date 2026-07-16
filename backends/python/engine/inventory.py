@@ -118,46 +118,58 @@ def parse_ansible_ini(path: Path) -> list[Machine]:
 
         parts = stripped.split()
         inv_hostname = parts[0]
-        kvs: dict[str, str] = {}
-        for part in parts[1:]:
-            if "=" in part:
-                k, v = part.split("=", 1)
-                kvs[k] = v
 
         if inv_hostname in by_name:
             by_name[inv_hostname].groups.append(current_group)
             continue
 
-        alias = kvs.get("ssh_alias", "")
-        machine = Machine(
-            id=inv_hostname,
-            name=inv_hostname,
-            hostname=kvs.get("ansible_host", inv_hostname),
-            user=kvs.get("ssh_user", kvs.get("ansible_user", "")),
-            port=int(kvs.get("ansible_port", "22")),
-            os=_guess_os(current_group),
-            groups=[current_group],
-            aliases=[alias] if alias else [],
-        )
+        machine = _machine_from_host_line(inv_hostname, parts[1:], current_group)
         by_name[inv_hostname] = machine
         machines.append(machine)
 
     # Apply group vars (user fallback) and derive harness
     for machine in machines:
-        if not machine.user:
-            for group in machine.groups:
-                gv = group_vars.get(group, {})
-                if gv.get("ansible_user"):
-                    machine.user = gv["ansible_user"]
-                    break
-        if machine.user:
-            machine.harness = "ssh"
-        elif machine.hostname != machine.name or re.match(r"^\d+\.\d+\.\d+\.\d+$", machine.hostname):
-            machine.harness = "ping"
-        else:
-            machine.harness = "none"
+        _apply_group_vars(machine, group_vars)
 
     return machines
+
+
+def _machine_from_host_line(
+    inv_hostname: str, kv_parts: list[str], current_group: str
+) -> Machine:
+    kvs: dict[str, str] = {}
+    for part in kv_parts:
+        if "=" in part:
+            k, v = part.split("=", 1)
+            kvs[k] = v
+
+    alias = kvs.get("ssh_alias", "")
+    return Machine(
+        id=inv_hostname,
+        name=inv_hostname,
+        hostname=kvs.get("ansible_host", inv_hostname),
+        user=kvs.get("ssh_user", kvs.get("ansible_user", "")),
+        port=int(kvs.get("ansible_port", "22")),
+        os=_guess_os(current_group),
+        groups=[current_group],
+        aliases=[alias] if alias else [],
+    )
+
+
+def _apply_group_vars(machine: Machine, group_vars: dict[str, dict[str, str]]) -> None:
+    """Fill the machine's user from group vars and derive its harness."""
+    if not machine.user:
+        for group in machine.groups:
+            gv = group_vars.get(group, {})
+            if gv.get("ansible_user"):
+                machine.user = gv["ansible_user"]
+                break
+    if machine.user:
+        machine.harness = "ssh"
+    elif machine.hostname != machine.name or re.match(r"^\d+\.\d+\.\d+\.\d+$", machine.hostname):
+        machine.harness = "ping"
+    else:
+        machine.harness = "none"
 
 
 def machines_to_json(machines: list[Machine]) -> str:
