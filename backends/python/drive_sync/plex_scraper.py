@@ -499,6 +499,14 @@ def print_status(df_actions, current_task=""):
     print("=" * 150)
 
 
+def get_available_space_gb(path):
+    """Free space on the drive holding `path` in GB, or None if undetectable."""
+    try:
+        return shutil.disk_usage(path).free / 1e9
+    except OSError:
+        return None
+
+
 def copy_file(src_path, dest_path):
     if not os.path.exists(dest_path):
         os.makedirs(os.path.dirname(dest_path), exist_ok=True)
@@ -691,6 +699,46 @@ def main():
 
     df_actions["status"] = "pending"
     print_status(df_actions, "User Confirmation")
+
+    # Space check: deletes run before downloads, so freed space counts as available.
+    size_to_download_gb = df_actions[df_actions["sync_state"] == "need download"][
+        "server_file_size_gb"
+    ].sum()
+    size_to_delete_gb = df_actions[df_actions["sync_state"] == "should delete"][
+        "dest_file_size_gb"
+    ].sum()
+    net_space_needed_gb = size_to_download_gb - size_to_delete_gb
+    available_space_gb = get_available_space_gb(destination_root_path)
+
+    if available_space_gb is None:
+        print_logger(
+            "Could not determine available space on the destination drive.",
+            level="warning",
+        )
+        print(
+            f"Available space on destination: unknown "
+            f"(net space needed: {net_space_needed_gb:.2f} GB)"
+        )
+        if assume_yes:
+            print_logger(
+                "--yes given but free space is unknown; proceeding anyway.",
+                level="warning",
+            )
+    else:
+        print(
+            f"Available space on destination: {available_space_gb:.2f} GB "
+            f"(net space needed: {net_space_needed_gb:.2f} GB, "
+            f"downloads: {size_to_download_gb:.2f} GB, "
+            f"freed by deletes: {size_to_delete_gb:.2f} GB)"
+        )
+        if net_space_needed_gb > available_space_gb:
+            print_logger(
+                f"Not enough space on destination: need {net_space_needed_gb:.2f} GB "
+                f"but only {available_space_gb:.2f} GB is available. "
+                "Free up space or reduce the config, then rerun.",
+                level="error",
+            )
+            sys.exit(1)
 
     if assume_yes:
         print_logger("--yes given, starting sync process...")
