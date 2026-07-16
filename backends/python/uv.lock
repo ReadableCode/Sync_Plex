@@ -1048,8 +1048,8 @@ wheels = [
 
 [[package]]
 name = "readable-utils"
-version = "0.1.2"
-source = { git = "https://github.com/ReadableCode/readable_utils.git?tag=v0.1.2#098ba81e328bdd161f934aa9892b6cd463c3c9a3" }
+version = "0.2.0"
+source = { git = "https://github.com/ReadableCode/readable_utils.git?tag=v0.2.0#79be5e84e66230df890bd67fb3d3747fe7847417" }
 dependencies = [
     { name = "pandas" },
     { name = "python-dotenv" },
@@ -1197,7 +1197,7 @@ dev = [
 drive-sync = [
     { name = "pandas", specifier = ">=2.2.3" },
     { name = "pyyaml", specifier = ">=6.0.2" },
-    { name = "readable-utils", git = "https://github.com/ReadableCode/readable_utils.git?tag=v0.1.2" },
+    { name = "readable-utils", git = "https://github.com/ReadableCode/readable_utils.git?tag=v0.2.0" },
     { name = "requests", specifier = ">=2.32.3" },
 ]
 
