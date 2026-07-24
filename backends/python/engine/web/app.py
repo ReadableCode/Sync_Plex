@@ -155,7 +155,11 @@ body, body.body--dark {
 }
 .section-h .sh-slash { color: var(--green-bright); }
 
-/* mobile status board: one-line pill until tapped */
+/* mobile status board: one-line pill until tapped; full card row on
+   desktop. Tailwind responsive variants (sm:*) aren't available in
+   NiceGUI's bundled build, so the swap is a plain media query. */
+@media (max-width: 639.98px) { .board-cards { display: none !important; } }
+@media (min-width: 640px) { .board-pill { display: none !important; } }
 .servers-expand {
   background: var(--surface);
   border: 1px solid var(--border);
@@ -354,7 +358,7 @@ def run_web(host: str = "127.0.0.1", port: int = 8788) -> None:  # noqa: C901 â€
                     used = health.disk_total_bytes - (health.disk_free_bytes or 0)
                     pct = round(100 * used / health.disk_total_bytes)
                     hot = " meter-hot" if pct >= 90 else ""
-                    ui.html(f'<div class="meter"><i class="{hot}" style="width:{pct}%"></i></div>')
+                    ui.html(f'<div class="meter"><i class="{hot}" style="width:{pct}%"></i></div>').classes("w-full")
                     ui.label(
                         f"{format_bytes(used)} used Â· {format_bytes(health.disk_free_bytes or 0)} free"
                         f" of {format_bytes(health.disk_total_bytes)}"
@@ -607,12 +611,12 @@ def run_web(host: str = "127.0.0.1", port: int = 8788) -> None:  # noqa: C901 â€
             _nav(user)
             # Desktop: the full card row. Mobile (<640px): a one-line pill
             # that only expands into the cards when tapped.
-            health_row = ui.row().classes("w-full gap-3 items-stretch hidden sm:flex")
-            with ui.expansion().classes("w-full sm:hidden servers-expand").props("dense") as servers_expand:
+            health_row = ui.row().classes("w-full gap-3 items-stretch board-cards")
+            with ui.expansion().classes("w-full servers-expand board-pill").props("dense") as servers_expand:
                 with servers_expand.add_slot("header"):
                     with ui.row().classes("items-center w-full no-wrap gap-2"):
                         health_summary = ui.label("servers: checkingâ€¦").classes("text-xs muted")
-                health_expanded = ui.column().classes("w-full gap-3 pb-3 px-3")
+                health_expanded = ui.row().classes("w-full gap-3 items-stretch pb-3 px-3")
             render_health()
             ui.timer(60.0, refresh_health)  # fires immediately, then every minute
             with ui.row().classes("items-center w-full no-wrap gap-3"):
