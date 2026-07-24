@@ -155,6 +155,19 @@ body, body.body--dark {
 }
 .section-h .sh-slash { color: var(--green-bright); }
 
+/* mobile status board: one-line pill until tapped */
+.servers-expand {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.servers-expand .q-item {
+  min-height: 34px;
+  padding: 4px 8px 4px 12px;
+}
+.servers-expand .q-expansion-item__toggle-icon { color: var(--muted); }
+.servers-expand .q-focus-helper { display: none; }
+
 /* nav links + request status badges */
 a.nav-link { color: var(--ink-2); text-decoration: none; }
 a.nav-link:hover { color: var(--green-bright); }
@@ -352,13 +365,36 @@ def run_web(host: str = "127.0.0.1", port: int = 8788) -> None:  # noqa: C901 �
                 if not health.up and health.error:
                     ui.label(health.error[:100]).classes("text-xs state-error")
 
+        def _health_summary() -> tuple[str, str]:
+            """One-line rollup for the collapsed mobile board: worst news first."""
+            healths = list(state["health"].values())
+            if not healths:
+                return "servers: checking…", "muted"
+            down = [h for h in healths if not h.up]
+            up_count = len(healths) - len(down)
+            if down:
+                return f"✗ {len(down)} down · {up_count}/{len(healths)} up", "state-error"
+            hot = [
+                h
+                for h in healths
+                if h.disk_total_bytes
+                and round(100 * (h.disk_total_bytes - (h.disk_free_bytes or 0)) / h.disk_total_bytes) >= 90
+            ]
+            if hot:
+                return f"◐ {len(healths)}/{len(healths)} up · {_short(hot[0].name)} disk ≥90%", "state-partial"
+            return f"● {len(healths)}/{len(healths)} servers up", "state-complete"
+
         def render_health() -> None:
-            health_row.clear()
-            with health_row:
-                if not state["health"]:
-                    ui.label("checking servers…").classes("text-xs muted")
-                for health in state["health"].values():
-                    _health_card(health)
+            for container in (health_row, health_expanded):
+                container.clear()
+                with container:
+                    if not state["health"]:
+                        ui.label("checking servers…").classes("text-xs muted")
+                    for health in state["health"].values():
+                        _health_card(health)
+            text, state_class = _health_summary()
+            health_summary.text = text
+            health_summary.classes(replace=f"text-xs {state_class}")
 
         async def refresh_health() -> None:
             healths = await check_all_servers(config)
@@ -569,7 +605,14 @@ def run_web(host: str = "127.0.0.1", port: int = 8788) -> None:  # noqa: C901 �
         # --- page layout ---
         with ui.column().classes("w-full max-w-2xl mx-auto p-4 gap-3"):
             _nav(user)
-            health_row = ui.row().classes("w-full gap-3 items-stretch")
+            # Desktop: the full card row. Mobile (<640px): a one-line pill
+            # that only expands into the cards when tapped.
+            health_row = ui.row().classes("w-full gap-3 items-stretch hidden sm:flex")
+            with ui.expansion().classes("w-full sm:hidden servers-expand").props("dense") as servers_expand:
+                with servers_expand.add_slot("header"):
+                    with ui.row().classes("items-center w-full no-wrap gap-2"):
+                        health_summary = ui.label("servers: checking…").classes("text-xs muted")
+                health_expanded = ui.column().classes("w-full gap-3 pb-3 px-3")
             render_health()
             ui.timer(60.0, refresh_health)  # fires immediately, then every minute
             with ui.row().classes("items-center w-full no-wrap gap-3"):
