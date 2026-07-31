@@ -26,6 +26,7 @@ from ..media.aggregation import (
 from ..media.config import MediaConfig, load_media_config
 from ..media.health import check_all_servers, estimate_add_bytes, format_bytes
 from ..media.models import AggregatedResult, MediaType, PresenceState, ServerHealth
+from ..media.notifications import notify_new_request
 from ..media.requests import MediaRequest, RequestStatus, RequestStore, fulfill_request
 from .auth import (
     LoginRateLimiter,
@@ -555,7 +556,10 @@ def run_web(host: str = "127.0.0.1", port: int = 8788) -> None:  # noqa: C901 �
                     )
 
                 def do_request() -> None:
+                    already_pending = requests_store.find_pending(r) is not None
                     request = requests_store.create(r, user.username)
+                    if not already_pending:  # duplicate clicks return the existing request — don't re-ping
+                        notify_new_request(request)
                     ui.notify(f"requested '{request.result.title}' — waiting for admin approval", position="top")
                     render_actions()
 
