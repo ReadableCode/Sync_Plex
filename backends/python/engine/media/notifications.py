@@ -2,9 +2,10 @@
 
 Reuses the same self-hosted ntfy instance and ``house_power`` topic the
 other home automation already publishes to. The post is done directly with
-``requests`` rather than via readable_utils.ntfy_tools — the docker image
-builds with ``--no-default-groups`` so readable-utils isn't installed there
-(and its ntfy helper drags in pandas for a one-line POST anyway).
+``httpx`` (a main dependency) rather than via readable_utils.ntfy_tools —
+the docker image builds with ``--no-default-groups``, so nothing from the
+drive-sync group (readable-utils, requests, pandas) exists in the container.
+Only main-dependency imports are safe anywhere under engine/.
 Credentials come from NTFY_URL / NTFY_USERNAME / NTFY_PASSWORD in the
 personal.env this repo's .env symlinks to (docker gets them via env_file).
 
@@ -16,7 +17,7 @@ import logging
 import os
 import threading
 
-import requests
+import httpx
 
 from ..config import load_env
 from .requests import MediaRequest
@@ -29,8 +30,8 @@ NTFY_TOPIC = "house_power"
 def notify_new_request(request: MediaRequest) -> None:
     """Tell the admins a request is waiting for approval at /requests.
 
-    Runs in a daemon thread — send_notification has no timeout, and an
-    unreachable ntfy must not stall the UI handler that filed the request.
+    Runs in a daemon thread so a slow or unreachable ntfy never stalls
+    the UI handler that filed the request.
     """
     threading.Thread(target=_send, args=(request,), daemon=True).start()
 
@@ -42,13 +43,13 @@ def _send(request: MediaRequest) -> None:
         logger.warning("NTFY_URL not set — skipping notification for request %s", request.id)
         return
     try:
-        response = requests.post(
+        response = httpx.post(
             f"{url}/{NTFY_TOPIC}",
             auth=(os.environ.get("NTFY_USERNAME", ""), os.environ.get("NTFY_PASSWORD", "")),
             data={"message": f"Sync_Plex: {request.requested_by} requested {request.title_line} — awaiting approval"},
             timeout=10,
         )
-        if not response.ok:
+        if not response.is_success:
             logger.warning(
                 "ntfy rejected the new-request notification for %s: HTTP %s", request.id, response.status_code
             )
