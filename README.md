@@ -17,8 +17,11 @@ syncdrive /Volumes/ExtSSD/Media    # mirror configured media onto a drive
 ```
 
 (`syncplex` and `syncdrive` are shell functions from dotfiles that `uv run`
-into this repo; from a bare clone use
-`uv run --project backends/python syncplex ...`.)
+into this repo — nothing is installed on PATH. From a bare clone, or on
+Windows where those functions don't exist, run from the repo root:
+`uv run --project backends/python syncplex ...` and
+`uv run --project backends/python syncplex-drive-sync <path> ...`. See
+[Drive sync on Windows](#drive-sync) for the Windows specifics.)
 
 ## Commands
 
@@ -116,6 +119,31 @@ the missing files from the Plex server (SMB copy on Windows, rsync-over-SSH
 on Linux, local copy on macOS) and deletes files under `TV/` and `Movies/`
 that are no longer wanted. In the TUI, `ctrl+s` opens the same tool: type
 the path, confirm, watch the output stream.
+
+### Drive sync on Windows
+
+There is no `syncdrive` command on Windows — the `cli/` wrappers and the
+dotfiles functions are bash/zsh only. Run the entry point through uv,
+**from the repo root**, with the drive's media path:
+
+```powershell
+cd C:\GitHub\Sync_Plex
+uv run --project backends\python syncplex-drive-sync E:\Media
+uv run --project backends\python syncplex-drive-sync E:\Media --yes
+```
+
+Windows notes:
+
+- **Run from the repo root.** The scraper finds `.env` by searching upward
+  from the current directory, not from the repo.
+- **`.env` is a symlink** (to `../personal_credentials/personal.env`). Git on
+  Windows checks symlinks out as plain text files unless the clone was made
+  with `core.symlinks=true` (needs Developer Mode or admin). If the symlink
+  is broken, copy `personal_credentials\personal.env` to `.env` at the repo
+  root instead.
+- **Files come over SMB** from `\\<plex-host>\Media` (host parsed from
+  `PLEX_SERVER` in `.env`). Open that share once in Explorer first if it
+  needs credentials.
 
 ## Web UI
 
