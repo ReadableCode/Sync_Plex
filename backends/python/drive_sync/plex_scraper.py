@@ -5,6 +5,7 @@ import argparse
 import os
 import platform
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -59,11 +60,9 @@ def get_plex_server_host():
 def get_source_root_path():
     if OPERATING_SYSTEM == "Windows":
         return f"\\\\{get_plex_server_host()}\\Media"
-    elif OPERATING_SYSTEM == "Linux":
+    elif OPERATING_SYSTEM in ("Linux", "Darwin"):
         # Server-side path used as the rsync source root over SSH
         return os.environ.get("PLEX_SERVER_MEDIA_PATH", "/Media")
-    elif OPERATING_SYSTEM == "Darwin":
-        return "/Volumes/Media"
     else:
         raise Exception("Operating system not recognized")
 
@@ -527,25 +526,27 @@ def copy_file(src_path, dest_path):
                 f"Error copying file {src_path} to {dest_path}, error: {result}",
                 level="error",
             )
-    elif OPERATING_SYSTEM == "Linux":
+    elif OPERATING_SYSTEM in ("Linux", "Darwin"):
         ssh_user = os.environ.get("PLEX_SSH_USER")
         if not ssh_user:
             raise EnvironmentError(
-                "PLEX_SSH_USER env var is required for Linux rsync-over-SSH copies."
+                "PLEX_SSH_USER env var is required for rsync-over-SSH copies."
             )
         server_host = get_plex_server_host()
-        remote_src = f"{ssh_user}@{server_host}:{src_path}"
+        # The remote shell word-splits the source path (spaces, apostrophes),
+        # so quote it. RSYNC_OLD_ARGS keeps rsync >= 3.2.4 from escaping the
+        # quotes a second time; older rsync and macOS openrsync ignore it.
+        remote_src = f"{ssh_user}@{server_host}:{shlex.quote(src_path)}"
         print_logger(f"Using rsync over SSH to copy {remote_src} to {dest_path}")
         os.makedirs(os.path.dirname(dest_path), exist_ok=True)
-        result = subprocess.run(["rsync", "-av", "-e", "ssh", remote_src, dest_path])
+        result = subprocess.run(
+            ["rsync", "-av", "-e", "ssh", remote_src, dest_path],
+            env={**os.environ, "RSYNC_OLD_ARGS": "1"},
+        )
         if result.returncode != 0:
             raise RuntimeError(
                 f"rsync failed with exit code {result.returncode} copying {remote_src} to {dest_path}."
             )
-    elif OPERATING_SYSTEM == "Darwin":
-        print_logger(f"Using shutil to copy {src_path} to {dest_path}")
-        os.makedirs(os.path.dirname(dest_path), exist_ok=True)
-        shutil.copy(src_path, dest_path)
     else:
         raise Exception("Operating system not recognized")
 

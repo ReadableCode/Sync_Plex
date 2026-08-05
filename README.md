@@ -116,7 +116,7 @@ syncdrive /Volumes/ExtSSD/Media --yes  # skip the confirmation (what the TUI use
 
 It compares what the drive has against what the config wants, then downloads
 the missing files from the Plex server (SMB copy on Windows, rsync-over-SSH
-on Linux, local copy on macOS) and deletes files under `TV/` and `Movies/`
+on Linux and macOS — no mounted share needed) and deletes files under `TV/` and `Movies/`
 that are no longer wanted. In the TUI, `ctrl+s` opens the same tool: type
 the path, confirm, watch the output stream.
 
@@ -144,6 +144,10 @@ Windows notes:
 - **Files come over SMB** from `\\<plex-host>\Media` (host parsed from
   `PLEX_SERVER` in `.env`). Open that share once in Explorer first if it
   needs credentials.
+- **NumPy `DLL load failed` on import** means uv resolved a pre-release
+  Python (look for the `3.14.0aX` warning at the top of the output) —
+  binary wheels don't load on alpha builds. Run `uv python upgrade 3.14`,
+  delete `backends\python\.venv`, and rerun.
 
 ## Web UI
 
