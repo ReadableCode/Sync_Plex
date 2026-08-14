@@ -95,7 +95,7 @@ def test_ansible_ini_roundtrip(tmp_path):
         ansible_user=pi
 
         [networking]
-        asusrouter ansible_host=192.168.86.1
+        homerouter ansible_host=192.168.86.1
 
         [game_consoles]
         Switch
@@ -114,8 +114,8 @@ def test_ansible_ini_roundtrip(tmp_path):
     assert by_name["raspberrypi4"].harness == "ssh"
 
     # no user but explicit IP -> ping
-    assert by_name["asusrouter"].harness == "ping"
-    assert by_name["asusrouter"].hostname == "192.168.86.1"
+    assert by_name["homerouter"].harness == "ping"
+    assert by_name["homerouter"].hostname == "192.168.86.1"
 
     # nothing to connect to -> none
     assert by_name["Switch"].harness == "none"
