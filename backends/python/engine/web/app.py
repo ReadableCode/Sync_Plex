@@ -28,6 +28,7 @@ from ..media.health import check_all_servers, estimate_add_bytes, format_bytes
 from ..media.models import AggregatedResult, MediaType, PresenceState, ServerHealth
 from ..media.notifications import notify_new_request
 from ..media.requests import MediaRequest, RequestStatus, RequestStore, fulfill_request
+from . import pwa
 from .auth import (
     LoginRateLimiter,
     attempt_login,
@@ -264,6 +265,7 @@ def run_web(host: str = "127.0.0.1", port: int = 8788) -> None:  # noqa: C901 â€
             return await call_next(request)
 
     app.add_middleware(AuthMiddleware)
+    pwa.register(app)
 
     def _theme() -> None:
         ui.colors(
@@ -278,6 +280,8 @@ def run_web(host: str = "127.0.0.1", port: int = 8788) -> None:  # noqa: C901 â€
             warning="#e3b341",
         )
         ui.add_css(_TOKENS_CSS)
+        ui.add_head_html(pwa.HEAD_HTML)
+        ui.add_body_html(pwa.BANNER_HTML)
 
     def _section(title: str) -> None:
         ui.html(f'<span class="sh-slash">//</span> {title}').classes("section-h")
