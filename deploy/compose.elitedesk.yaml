@@ -1,13 +1,19 @@
 # Sync_Plex media remote web UI (NiceGUI). Pulled into
 # Docker/docker_compose_projects.yaml via `include:`; the include entry sets
 # project_directory to this repo's root, so relative paths resolve from here.
-# Talks to sonarr/radarr/plex over the LAN rather than to other compose
-# services, so no depends_on. The inventory is mounted read-only from the
-# personal_credentials repo, and API keys/tokens come from the same repo's
-# personal.env via env_file (same file this repo's .env symlinks to) —
-# including SYNCPLEX_SESSION_SECRET, which signs login session cookies.
-# /data holds users.json + requests.json (login accounts, request queue);
-# manage accounts with:  sudo docker exec -it syncplex_web syncplex users ...
+# Talks to sonarr/radarr/plex over the LAN, and to the shared postgres /
+# postgrest / auth services by compose service name. The inventory is mounted
+# read-only from the personal_credentials repo, and API keys/tokens/database
+# credentials come from the same repo's personal.env via env_file (same file
+# this repo's .env symlinks to) — including SYNCPLEX_SESSION_SECRET, which
+# signs the NiceGUI session cookie.
+#
+# Accounts and the request queue live in the `syncplex` schema of the shared
+# `apps` database; /data now only holds NiceGUI's session scratch (plus the
+# users.json.migrated / requests.json.migrated originals from the import).
+# Manage accounts with:
+#   docker compose -f docker_compose_projects.yaml exec syncplex-web \
+#       syncplex users add <name> --role admin
 services:
   syncplex-web:
     image: syncplex_web_image
@@ -19,8 +25,18 @@ services:
       TZ: America/Chicago
       SYNCPLEX_HOSTS: /config/hosts.json
       SYNCPLEX_DATA_DIR: /data
+      APP_SCHEMA: syncplex
+      POSTGREST_URL: http://postgrest:3000
+      AUTH_URL: http://auth:8000
+      POSTGRES_URL: postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: apps
     env_file:
       - ../personal_credentials/personal.env
+    depends_on:
+      - postgres
+      - postgrest
+      - auth
     volumes:
       - ../personal_credentials/hosts.json:/config/hosts.json:ro
       - /home/jason/docker_app_data/syncplex:/data

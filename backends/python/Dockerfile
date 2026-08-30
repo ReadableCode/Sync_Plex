@@ -20,6 +20,10 @@ RUN uv sync --frozen --no-default-groups --no-install-project
 
 COPY engine/ ./engine/
 COPY drive_sync/ ./drive_sync/
+# Bootstrap reads these at startup (engine/bootstrap.py), so they ship in
+# the image rather than living only in the repo.
+COPY deploy/ ./deploy/
+COPY scripts/ ./scripts/
 
 RUN uv sync --frozen --no-default-groups
 

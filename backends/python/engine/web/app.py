@@ -15,6 +15,7 @@ can only file requests there (engine/media/requests).
 
 import os
 
+from .. import bootstrap
 from ..config import get_data_dir
 from ..media.aggregation import (
     add_to_instance,
@@ -30,14 +31,14 @@ from ..media.notifications import notify_new_request
 from ..media.requests import MediaRequest, RequestStatus, RequestStore, fulfill_request
 from . import pwa
 from .auth import (
-    LoginRateLimiter,
     attempt_login,
     clear_session,
     current_user,
     issue_session,
     session_secret,
+    session_token,
 )
-from .users import User, UserStore
+from .users import User, UserStore, db_reachable
 
 STATE_BADGE = {
     PresenceState.MONITORED_COMPLETE: ("‚óè complete", "state-complete"),
@@ -233,18 +234,30 @@ def run_web(host: str = "127.0.0.1", port: int = 8788) -> None:  # noqa: C901 ‚Ä
     from nicegui.storage import Storage
     from starlette.middleware.base import BaseHTTPMiddleware
 
-    # Server-side session storage goes in the data dir (not CWD), so logins
-    # survive container rebuilds alongside users.json/requests.json.
+    # NiceGUI's own session storage stays a file in the data dir ‚Äî it is
+    # framework scratch (session ids), not application data, and NiceGUI has
+    # no PostgREST backend. Accounts and the request queue moved to Postgres.
     if not os.environ.get("NICEGUI_STORAGE_PATH"):
         Storage.path = get_data_dir() / ".nicegui"
 
+    # No fallback store: accounts and the queue are in Postgres or the app
+    # does not run. Checked before bootstrap so the failure names the cause.
+    reachable, detail = db_reachable()
+    if not reachable:
+        raise RuntimeError(f"Postgres unreachable ‚Äî syncplex cannot serve without it: {detail}")
+    bootstrap.bootstrap_best_effort()
+
     config: MediaConfig = load_media_config()
     users = UserStore()
-    requests_store = RequestStore()
-    limiter = LoginRateLimiter()
 
     def _user() -> User | None:
         return current_user(app.storage.user, users)
+
+    def _requests(user: User) -> RequestStore:
+        """The queue as this user sees it. Built per call because the store
+        carries the session token that RLS reads ‚Äî there is no process-wide
+        view of the queue any more."""
+        return RequestStore(session_token(app.storage.user), user)
 
     def _client_ip(request: Request) -> str:
         # First X-Forwarded-For hop when behind the reverse proxy. Spoofable
@@ -296,9 +309,9 @@ def run_web(host: str = "127.0.0.1", port: int = 8788) -> None:  # noqa: C901 ‚Ä
             with ui.link(target="/").classes("nav-link grow"):
                 ui.html('<span class="brand-prompt">‚ùØ</span> syncplex media').classes("text-2xl font-bold")
             count = (
-                requests_store.pending_count()
+                _requests(user).pending_count()
                 if user.is_admin
-                else len(requests_store.list(status=RequestStatus.PENDING, requested_by=user.username))
+                else len(_requests(user).list(status=RequestStatus.PENDING, requested_by=user.username))
             )
             ui.link(f"requests ({count})" if count else "requests", "/requests").classes("nav-link text-sm shrink-0")
             ui.label(f"{user.username} ¬∑ {user.role}").classes("text-xs muted shrink-0")
@@ -312,14 +325,14 @@ def run_web(host: str = "127.0.0.1", port: int = 8788) -> None:  # noqa: C901 ‚Ä
             return
 
         async def try_login() -> None:
-            # io_bound keeps the ~100ms argon2 verify off the event loop
-            user, error = await run.io_bound(
-                attempt_login, users, limiter, username_box.value or "", password_box.value or "", _client_ip(request)
+            # io_bound keeps the auth-service round trip off the event loop
+            token, error = await run.io_bound(
+                attempt_login, username_box.value or "", password_box.value or "", _client_ip(request)
             )
-            if user is None:
+            if token is None:
                 ui.notify(error, color="negative", position="top")
                 return
-            issue_session(app.storage.user, user)
+            issue_session(app.storage.user, token)
             ui.navigate.to(app.storage.user.pop("referrer_path", "/") or "/")
 
         with ui.column().classes("absolute-center items-center gap-4 w-80"):
@@ -538,14 +551,15 @@ def run_web(host: str = "127.0.0.1", port: int = 8788) -> None:  # noqa: C901 ‚Ä
                 def _request_actions() -> None:
                     """Non-admins never add directly ‚Äî they file a request
                     that an admin approves (and targets) at /requests."""
-                    pending = requests_store.find_pending(r)
+                    # Only this user's own open requests are visible now: row-level
+                    # security scopes the queue per account, so the card can no longer
+                    # say who else asked for a title.
+                    pending = _requests(user).find_pending(r)
                     if pending is not None:
-                        who = "you" if pending.requested_by == user.username else pending.requested_by
-                        ui.label(f"‚è≥ requested by {who} ‚Äî waiting for admin approval").classes("req-pending")
-                        if pending.requested_by == user.username:
-                            ui.button("withdraw request", on_click=lambda: do_withdraw(pending.id)).props(
-                                "flat no-caps"
-                            ).classes("w-full")
+                        ui.label("‚è≥ requested by you ‚Äî waiting for admin approval").classes("req-pending")
+                        ui.button("withdraw request", on_click=lambda: do_withdraw(pending.id)).props(
+                            "flat no-caps"
+                        ).classes("w-full")
                         return
                     absent = [s for s in aggregated.statuses if s.state == PresenceState.NOT_PRESENT]
                     if not absent:
@@ -560,8 +574,8 @@ def run_web(host: str = "127.0.0.1", port: int = 8788) -> None:  # noqa: C901 ‚Ä
                     )
 
                 def do_request() -> None:
-                    already_pending = requests_store.find_pending(r) is not None
-                    request = requests_store.create(r, user.username)
+                    already_pending = _requests(user).find_pending(r) is not None
+                    request = _requests(user).create(r, user.username)
                     if not already_pending:  # duplicate clicks return the existing request ‚Äî don't re-ping
                         notify_new_request(request)
                     ui.notify(f"requested '{request.result.title}' ‚Äî waiting for admin approval", position="top")
@@ -569,7 +583,7 @@ def run_web(host: str = "127.0.0.1", port: int = 8788) -> None:  # noqa: C901 ‚Ä
 
                 def do_withdraw(request_id: str) -> None:
                     try:
-                        requests_store.withdraw(request_id, user.username)
+                        _requests(user).withdraw(request_id, user.username)
                     except (KeyError, ValueError) as exc:
                         ui.notify(str(exc), color="negative", position="top")
                     render_actions()
@@ -685,7 +699,9 @@ def run_web(host: str = "127.0.0.1", port: int = 8788) -> None:  # noqa: C901 ‚Ä
                     if not target.value:
                         ui.notify("pick a server first", color="warning", position="top")
                         return
-                    add_result = await fulfill_request(requests_store, request.id, target.value, user.username, config)
+                    add_result = await fulfill_request(
+                        _requests(user), request.id, target.value, user.username, config
+                    )
                     ui.notify(
                         add_result.message,
                         color="positive" if add_result.ok else "negative",
@@ -702,7 +718,7 @@ def run_web(host: str = "127.0.0.1", port: int = 8788) -> None:  # noqa: C901 ‚Ä
 
                         def confirm() -> None:
                             try:
-                                requests_store.deny(request.id, user.username, note=note_box.value or "")
+                                _requests(user).deny(request.id, user.username, note=note_box.value or "")
                             except (KeyError, ValueError) as exc:
                                 ui.notify(str(exc), color="negative", position="top")
                             deny_dialog.close()
@@ -740,7 +756,7 @@ def run_web(host: str = "127.0.0.1", port: int = 8788) -> None:  # noqa: C901 ‚Ä
 
                     def withdraw(request_id: str = request.id) -> None:
                         try:
-                            requests_store.withdraw(request_id, user.username)
+                            _requests(user).withdraw(request_id, user.username)
                         except (KeyError, ValueError) as exc:
                             ui.notify(str(exc), color="negative", position="top")
                         render()
@@ -751,19 +767,19 @@ def run_web(host: str = "127.0.0.1", port: int = 8788) -> None:  # noqa: C901 ‚Ä
             area.clear()
             with area:
                 if user.is_admin:
-                    pending = requests_store.list(status=RequestStatus.PENDING)
+                    pending = _requests(user).list(status=RequestStatus.PENDING)
                     _section(f"pending requests ({len(pending)})")
                     if not pending:
                         ui.label("queue is empty.").classes("muted")
                     for request in pending:
                         _admin_card(request)
-                    history = [r for r in requests_store.list() if r.status != RequestStatus.PENDING][:30]
+                    history = [r for r in _requests(user).list() if r.status != RequestStatus.PENDING][:30]
                     if history:
                         _section("history")
                         for request in history:
                             _history_row(request)
                 else:
-                    mine = requests_store.list(requested_by=user.username)
+                    mine = _requests(user).list(requested_by=user.username)
                     _section("your requests")
                     if not mine:
                         ui.label("nothing yet ‚Äî search on the main page and hit request.").classes("muted")

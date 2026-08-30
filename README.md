@@ -151,31 +151,41 @@ Windows notes:
 
 ## Web UI
 
-Self-contained login (argon2id, rate-limited, server-side sessions — no
-Authelia needed); TLS comes from the reverse proxy in front.
+Own login page (no Authelia in front); TLS comes from the reverse proxy.
+Passwords are verified by the shared `postgrest-auth` service, which owns the
+argon2id policy and the per-username/per-IP lockout for every app at once. The
+JWT it returns is both the session credential and the Bearer token for
+PostgREST, so row-level security scopes the request queue off the same claims
+the login produced.
 
-Accounts live in `users.json` inside the app's data dir, which is resolved
-**per process**: `$SYNCPLEX_DATA_DIR` if set, else `~/.config/syncplex`. The
-deployed container sets `SYNCPLEX_DATA_DIR=/data` (a mounted host volume), so
-**account commands for the deployed web UI must run inside the container** —
-running them on the host writes to a different `users.json` the web UI never
-reads:
+Accounts and the request queue live in the `syncplex` schema of the shared
+`apps` Postgres database. There is no file fallback: if Postgres is
+unreachable the app refuses to start rather than quietly serving an empty
+store. Account commands need the deployment's database environment, so run
+them through compose:
 
 ```bash
-# deployed instance (the normal case):
-sudo docker exec -it syncplex_web syncplex users add jason --role admin
-sudo docker exec -it syncplex_web syncplex users add friendname   # default role: user
-
-# only for a locally-run `syncplex web` on this machine:
-syncplex users add jason --role admin
+docker compose -f docker_compose_projects.yaml exec syncplex-web \
+    syncplex users add jason --role admin
+docker compose -f docker_compose_projects.yaml exec syncplex-web \
+    syncplex users add friendname          # default role: user
 ```
+
+A host shell would either fail on missing `POSTGRES_*` env or reach a
+different database, so the compose form is the only supported one.
 
 The first account must be created this way — with zero accounts nobody can
 log in. Admins add titles directly and work the approval queue at
 `/requests`; users can search everything but only *request* — nothing
-downloads until an admin approves and picks the server. Password
-changes/disables kill sessions immediately. Set `SYNCPLEX_SESSION_SECRET` so
-sessions survive restarts.
+downloads until an admin approves and picks the server. A password change,
+disable, re-enable, or role change all bump `password_changed_at`, which kills
+that account's live sessions immediately. Set `SYNCPLEX_SESSION_SECRET` so the
+NiceGUI session cookie survives restarts.
+
+`$SYNCPLEX_DATA_DIR` (`/data` in the container) still exists, but it now holds
+only NiceGUI's server-side session scratch — plus the
+`users.json.migrated` / `requests.json.migrated` originals kept by the
+one-shot import (`scripts/import_json_stores.py`, run with `--dry-run` first).
 
 ## Deployment
 

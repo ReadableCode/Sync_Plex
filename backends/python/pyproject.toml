@@ -11,6 +11,8 @@ dependencies = [
     "textual>=8.2.8",
     "nicegui>=3.14.0",
     "argon2-cffi>=25.1.0",
+    "psycopg[binary]>=3.2",
+    "pyjwt>=2.10",
 ]
 
 [project.scripts]

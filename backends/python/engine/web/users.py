@@ -1,32 +1,35 @@
-"""Web UI user accounts — argon2id hashes in a JSON file.
+"""Web UI user accounts, backed by syncplex.users in the shared `apps` database.
 
-This is the authentication database that replaced the Authelia forward-auth
-layer: same algorithm (argon2id), same single-file model, but owned by the
-app so it can also carry roles. Two roles exist:
+Two roles exist:
 
 - ``admin``  — full UI: direct adds, plus the approval queue. Admins approve
   requests and pick which Sonarr/Radarr instance fulfils them.
 - ``user``   — search everything, but can only *request* titles; nothing is
   downloaded until an admin approves the request.
 
-The file lives at ``<data dir>/users.json`` (see ``engine.config.get_data_dir``)
-and is managed with the ``syncplex users`` CLI — see README "Users & roles".
-No plaintext secrets are ever stored; timing-safe verification and a dummy
-hash for unknown usernames keep logins from leaking which accounts exist.
+Password *verification* is not here. It lives in the shared postgrest-auth
+service (see ``engine.web.auth``), which owns the KDF policy, the lockout, and
+the no-enumeration timing defense for every app at once. This store manages
+accounts (the ``syncplex users`` CLI) and answers the per-request session check.
+
+Hashes stay argon2id and are written by this module when an account is created
+or its password changed, so nothing about the stored credentials changed in the
+move off users.json. The table is REVOKEd from the PostgREST roles
+(deploy/03_secure_users.sql); only this process, on the superuser connection,
+can read it.
 """
 
-import json
-import os
+from __future__ import annotations
+
 import re
-import threading
-from datetime import UTC, datetime
-from pathlib import Path
+import time
+from datetime import datetime
 
+import psycopg
 from argon2 import PasswordHasher
-from argon2.exceptions import InvalidHashError, VerificationError
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
-from ..config import get_data_dir
+from .. import config
 
 ROLE_ADMIN = "admin"
 ROLE_USER = "user"
@@ -36,23 +39,24 @@ _USERNAME_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{0,31}$")
 
 _hasher = PasswordHasher()  # argon2id, library defaults (64 MiB, t=3, p=4)
 
-# Verified when a login names an unknown account, so the response time does
-# not reveal whether the username exists.
-_DUMMY_HASH = _hasher.hash("syncplex-no-such-user")
-
 MIN_PASSWORD_LENGTH = 10
+
+# Session validation runs on every page render; a short cache keeps that from
+# being a database round trip per request without letting a disable linger.
+_CACHE_TTL_SECONDS = 30.0
 
 
 class User(BaseModel):
+    id: str
     username: str
     password_hash: str
     role: str = ROLE_USER
     display_name: str = ""
     disabled: bool = False
-    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    created_at: datetime
     # Sessions issued before this instant are rejected, so changing a
     # password (or re-enabling an account) logs out every existing session.
-    password_changed_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    password_changed_at: datetime
 
     @property
     def is_admin(self) -> bool:
@@ -71,122 +75,163 @@ def validate_password(password: str) -> None:
         raise ValueError(f"Password must be at least {MIN_PASSWORD_LENGTH} characters")
 
 
-class UserStore:
-    """All accounts in one JSON file; every mutation is an atomic rewrite.
+_COLS = "id, username, password_hash, role, display_name, disabled, created_at, password_changed_at"
 
-    The store re-reads the file when its mtime changes, so `syncplex users`
-    edits (run on the host or via docker exec) are picked up by the running
-    web process without a restart.
+
+def _row_to_user(row) -> User:
+    return User(
+        id=str(row[0]),
+        username=row[1],
+        password_hash=row[2],
+        role=row[3],
+        display_name=row[4],
+        disabled=row[5],
+        created_at=row[6],
+        password_changed_at=row[7],
+    )
+
+
+class UserStore:
+    """Account management over the superuser connection.
+
+    Method signatures are the ones the CLI and the web app already used when
+    this was a JSON file, so callers did not have to change. The database is
+    the concurrency control now — there is no in-process lock and no reload
+    check, because there is no longer a file for a second process to edit.
     """
 
-    def __init__(self, path: Path | None = None):
-        self.path = path or (get_data_dir() / "users.json")
-        self._lock = threading.Lock()
-        self._users: dict[str, User] = {}
-        self._loaded_mtime: float | None = None
-        self._load()
+    def __init__(self) -> None:
+        self._cache: dict[str, tuple[float, User | None]] = {}
 
-    def _load(self) -> None:
-        if not self.path.is_file():
-            self._users = {}
-            self._loaded_mtime = None
-            return
-        raw = json.loads(self.path.read_text())
-        self._users = {u["username"]: User.model_validate(u) for u in raw.get("users", [])}
-        self._loaded_mtime = self.path.stat().st_mtime
+    def _conn(self):
+        return psycopg.connect(config.superuser_dsn())
 
-    def _refresh(self) -> None:
-        mtime = self.path.stat().st_mtime if self.path.is_file() else None
-        if mtime != self._loaded_mtime:
-            self._load()
-
-    def _save(self) -> None:
-        payload = {"users": [u.model_dump(mode="json") for u in self._users.values()]}
-        tmp = self.path.with_suffix(".json.tmp")
-        tmp.write_text(json.dumps(payload, indent=2) + "\n")
-        os.chmod(tmp, 0o600)  # hashes only, but no reason to share them
-        tmp.replace(self.path)
-        self._loaded_mtime = self.path.stat().st_mtime
+    def _invalidate(self, username: str) -> None:
+        self._cache.pop(username.strip().lower(), None)
 
     # --- queries ---
 
     def get(self, username: str) -> User | None:
-        with self._lock:
-            self._refresh()
-            return self._users.get(username)
+        username = username.strip().lower()
+        now = time.monotonic()
+        hit = self._cache.get(username)
+        if hit and now - hit[0] < _CACHE_TTL_SECONDS:
+            return hit[1]
+        with self._conn() as conn, conn.cursor() as cur:
+            cur.execute(f"SELECT {_COLS} FROM {config.APP_SCHEMA}.users WHERE username = %s", (username,))
+            row = cur.fetchone()
+        user = _row_to_user(row) if row else None
+        self._cache[username] = (now, user)
+        return user
 
     def list(self) -> list[User]:
-        with self._lock:
-            self._refresh()
-            return sorted(self._users.values(), key=lambda u: u.username)
+        with self._conn() as conn, conn.cursor() as cur:
+            cur.execute(f"SELECT {_COLS} FROM {config.APP_SCHEMA}.users ORDER BY username")
+            return [_row_to_user(r) for r in cur.fetchall()]
 
     def admin_count(self) -> int:
-        return sum(1 for u in self.list() if u.is_admin and not u.disabled)
+        with self._conn() as conn, conn.cursor() as cur:
+            cur.execute(
+                f"SELECT count(*) FROM {config.APP_SCHEMA}.users WHERE role = %s AND NOT disabled",
+                (ROLE_ADMIN,),
+            )
+            return cur.fetchone()[0]
 
     # --- mutations ---
 
     def add(self, username: str, password: str, role: str = ROLE_USER, display_name: str = "") -> User:
-        username = validate_username(username)
         validate_password(password)
+        return self.add_prehashed(username, _hasher.hash(password), role=role, display_name=display_name)
+
+    def add_prehashed(
+        self,
+        username: str,
+        password_hash: str,
+        role: str = ROLE_USER,
+        display_name: str = "",
+        created_at: datetime | None = None,
+        password_changed_at: datetime | None = None,
+        disabled: bool = False,
+    ) -> User:
+        """Insert with an already-computed hash.
+
+        The import script uses this: a hash moved from users.json is opaque
+        data, never parsed and never recomputed, and its timestamps come across
+        with it so no live session is revoked by the move.
+        """
+        username = validate_username(username)
         if role not in ROLES:
             raise ValueError(f"Role must be one of {ROLES}")
-        with self._lock:
-            self._refresh()
-            if username in self._users:
-                raise ValueError(f"User '{username}' already exists")
-            user = User(
-                username=username,
-                password_hash=_hasher.hash(password),
-                role=role,
-                display_name=display_name or username,
+        with self._conn() as conn, conn.cursor() as cur:
+            cur.execute(
+                f"SELECT 1 FROM {config.APP_SCHEMA}.users WHERE username = %s",
+                (username,),
             )
-            self._users[username] = user
-            self._save()
-            return user
+            if cur.fetchone() is not None:
+                raise ValueError(f"User '{username}' already exists")
+            cur.execute(
+                f"""INSERT INTO {config.APP_SCHEMA}.users
+                    (username, password_hash, role, display_name, disabled, created_at, password_changed_at)
+                    VALUES (%s, %s, %s, %s, %s, COALESCE(%s, now()), COALESCE(%s, now()))
+                    RETURNING {_COLS}""",
+                (username, password_hash, role, display_name or username, disabled, created_at, password_changed_at),
+            )
+            row = cur.fetchone()
+        self._invalidate(username)
+        return _row_to_user(row)
 
     def set_password(self, username: str, password: str) -> None:
         validate_password(password)
-        self._update(username, password_hash=_hasher.hash(password), password_changed_at=datetime.now(UTC))
+        self._update(
+            username,
+            "SET password_hash = %s, password_changed_at = now()",
+            (_hasher.hash(password),),
+        )
 
     def set_disabled(self, username: str, disabled: bool) -> None:
         # Invalidate sessions in both directions: disabling must lock out
         # live sessions, re-enabling must not resurrect pre-disable cookies.
-        self._update(username, disabled=disabled, password_changed_at=datetime.now(UTC))
+        self._update(username, "SET disabled = %s, password_changed_at = now()", (disabled,))
 
     def set_role(self, username: str, role: str) -> None:
         if role not in ROLES:
             raise ValueError(f"Role must be one of {ROLES}")
-        self._update(username, role=role)
+        # Bumping password_changed_at here is new, and it matters: the role now
+        # rides in the session token as the app_role claim that RLS keys the
+        # admin policy on. Without revoking the session, a demoted admin would
+        # keep admin reach at the database level until their token expired.
+        self._update(username, "SET role = %s, password_changed_at = now()", (role,))
 
     def remove(self, username: str) -> None:
-        with self._lock:
-            self._refresh()
-            if username not in self._users:
+        username = username.strip().lower()
+        with self._conn() as conn, conn.cursor() as cur:
+            cur.execute(f"DELETE FROM {config.APP_SCHEMA}.users WHERE username = %s", (username,))
+            if cur.rowcount == 0:
                 raise KeyError(f"No such user: {username}")
-            del self._users[username]
-            self._save()
+        self._invalidate(username)
 
-    def _update(self, username: str, **changes) -> None:
-        with self._lock:
-            self._refresh()
-            user = self._users.get(username)
-            if user is None:
+    def _update(self, username: str, set_clause: str, params: tuple) -> None:
+        username = username.strip().lower()
+        with self._conn() as conn, conn.cursor() as cur:
+            cur.execute(
+                f"UPDATE {config.APP_SCHEMA}.users {set_clause} WHERE username = %s",
+                (*params, username),
+            )
+            if cur.rowcount == 0:
                 raise KeyError(f"No such user: {username}")
-            self._users[username] = user.model_copy(update=changes)
-            self._save()
+        self._invalidate(username)
 
-    # --- authentication ---
 
-    def verify(self, username: str, password: str) -> User | None:
-        """Timing-safe credential check. Returns the user only when the
-        password matches and the account is enabled."""
-        user = self.get(username.strip().lower())
-        try:
-            _hasher.verify(user.password_hash if user else _DUMMY_HASH, password)
-        except (VerificationError, InvalidHashError):
-            return None
-        if user is None or user.disabled:
-            return None
-        if _hasher.check_needs_rehash(user.password_hash):
-            self._update(user.username, password_hash=_hasher.hash(password))
-        return user
+def hash_password(password: str) -> str:
+    return _hasher.hash(password)
+
+
+def db_reachable() -> tuple[bool, str]:
+    if not config.db_configured():
+        return False, "POSTGRES_* env not configured"
+    try:
+        with psycopg.connect(config.superuser_dsn()) as conn, conn.cursor() as cur:
+            cur.execute("SELECT 1")
+        return True, "ok"
+    except psycopg.Error as exc:
+        return False, str(exc).strip()

@@ -53,3 +53,43 @@ def load_env() -> None:
 
     load_dotenv(REPO_ROOT / ".env")
     load_dotenv()  # CWD .env, does not override already-set vars
+
+
+load_env()
+
+
+def _env(name: str, default: str = "") -> str:
+    return os.environ.get(name, default).strip().strip('"').strip("'")
+
+
+# --- Postgres / PostgREST ---------------------------------------------------
+# Accounts and the request queue live in the shared `apps` database. There is
+# deliberately no fallback DSN and no local-file mode: an unreachable database
+# is a loud failure, not a silent switch to a different store.
+
+APP_SCHEMA = _env("APP_SCHEMA", "syncplex")
+
+POSTGRES_URL = _env("POSTGRES_URL")
+POSTGRES_PORT = _env("POSTGRES_PORT", "5432")
+POSTGRES_DB = _env("POSTGRES_DB", "apps")
+POSTGRES_USER = _env("POSTGRES_USER")
+POSTGRES_PASSWORD = _env("POSTGRES_PASSWORD")
+
+POSTGREST_URL = _env("POSTGREST_URL").rstrip("/")
+AUTH_URL = _env("AUTH_URL", "https://auth.tinkernet.me").rstrip("/")
+JWT_SECRET = _env("POSTGREST_JWT_SECRET") or _env("JWT_SECRET")
+
+HTTP_TIMEOUT = 10.0
+
+
+def superuser_dsn() -> str:
+    """The bootstrap / credential-read connection (conventions I2, exceptions
+    1-3). Application data never travels over this."""
+    return (
+        f"host={POSTGRES_URL} port={POSTGRES_PORT} dbname={POSTGRES_DB} "
+        f"user={POSTGRES_USER} password={POSTGRES_PASSWORD} connect_timeout=5"
+    )
+
+
+def db_configured() -> bool:
+    return bool(POSTGRES_URL and POSTGRES_USER and POSTGRES_PASSWORD)

@@ -1,19 +1,36 @@
 """`syncplex users ...` — manage web UI accounts (see README "Users & roles").
 
-Runs against the users.json in the data dir (SYNCPLEX_DATA_DIR, or
-~/.config/syncplex). In the docker deployment that dir is a mounted volume,
-so run these through the container:
+Runs against syncplex.users in the shared `apps` database, over the superuser
+connection (conventions I2, exception 3). Run it through the container, which
+is where the POSTGRES_* environment lives:
 
-    sudo docker exec -it syncplex_web syncplex users add <name> --role admin
+    docker compose -f docker_compose_projects.yaml exec syncplex-web \
+        syncplex users add <name> --role admin
+
+A host shell would either fail on missing env or reach a different database, so
+the compose form is the only supported one.
 
 Passwords are always prompted (never CLI args), so they stay out of shell
-history; only the argon2id hash is stored. The running web app picks up
-changes without a restart.
+history; only the argon2id hash is stored. The running web app picks changes up
+within its 30-second account cache, no restart needed.
 """
 
 import typer
 
+from .. import bootstrap, config
 from .users import ROLE_ADMIN, ROLE_USER, ROLES, UserStore
+
+
+def _store() -> UserStore:
+    """Every command starts here.
+
+    Bootstrap runs from the CLI as well as the web app because creating the
+    first admin is how a fresh deployment starts, and that can happen before
+    the web process has ever booted.
+    """
+    bootstrap.bootstrap_best_effort()
+    return UserStore()
+
 
 users_app = typer.Typer(name="users", help="Manage web UI accounts (admins add; users request)")
 
@@ -34,22 +51,22 @@ def add(
     if role not in ROLES:
         typer.secho(f"  ✗ role must be one of: {', '.join(ROLES)}", fg=typer.colors.RED)
         raise typer.Exit(1)
-    store = UserStore()
+    store = _store()
     try:
         user = store.add(username, _prompt_password(), role=role, display_name=display_name)
     except ValueError as exc:
         typer.secho(f"  ✗ {exc}", fg=typer.colors.RED)
         raise typer.Exit(1) from exc
-    typer.secho(f"  ✓ created {user.role} '{user.username}' in {store.path}", fg=typer.colors.GREEN)
+    typer.secho(f"  ✓ created {user.role} '{user.username}' in {config.APP_SCHEMA}.users", fg=typer.colors.GREEN)
 
 
 @users_app.command("list")
 def list_users():
     """List accounts, roles, and status."""
-    store = UserStore()
+    store = _store()
     accounts = store.list()
     if not accounts:
-        typer.echo(f"  (no accounts in {store.path} — `syncplex users add <name> --role admin` to bootstrap)")
+        typer.echo(f"  (no accounts in {config.APP_SCHEMA}.users — `syncplex users add <name> --role admin`)")
         return
     for user in accounts:
         status = "disabled" if user.disabled else "active"
@@ -59,7 +76,7 @@ def list_users():
 @users_app.command()
 def passwd(username: str = typer.Argument(..., help="Account to reset")):
     """Change a password (logs out that user's existing sessions)."""
-    store = UserStore()
+    store = _store()
     try:
         store.set_password(username, _prompt_password())
     except (KeyError, ValueError) as exc:
@@ -74,7 +91,7 @@ def role(
     new_role: str = typer.Argument(..., help=f"One of: {', '.join(ROLES)}"),
 ):
     """Promote/demote an account (e.g. make a second admin)."""
-    store = UserStore()
+    store = _store()
     try:
         store.set_role(username, new_role)
     except (KeyError, ValueError) as exc:
@@ -96,7 +113,7 @@ def enable(username: str = typer.Argument(..., help="Account to reinstate")):
 
 
 def _set_disabled(username: str, disabled: bool) -> None:
-    store = UserStore()
+    store = _store()
     try:
         store.set_disabled(username, disabled)
     except KeyError as exc:
@@ -113,7 +130,7 @@ def remove(
     """Delete an account entirely (their past requests keep the name)."""
     if not yes:
         typer.confirm(f"Delete user '{username}'?", abort=True)
-    store = UserStore()
+    store = _store()
     try:
         store.remove(username)
     except KeyError as exc:

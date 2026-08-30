@@ -6,21 +6,23 @@ only starts when an admin approves the request AND chooses the instance via
 ``fulfill_request`` (which calls ``aggregation.add_to_instance``). A denied
 or failed add never touches the media servers.
 
-State is one JSON file at ``<data dir>/requests.json`` — same single-file,
-atomic-rewrite pattern as the user store.
+State lives in ``syncplex.requests`` and is reached only through PostgREST,
+carrying the caller's session JWT, so row-level security is what decides who
+sees what: a user reaches their own rows, an admin reaches the whole queue.
+The store is therefore per-session rather than per-process — construct one
+with the logged-in user's token.
 """
 
-import json
-import os
-import threading
+from __future__ import annotations
+
 import uuid
 from datetime import UTC, datetime
 from enum import Enum
-from pathlib import Path
 
 from pydantic import BaseModel, Field
 
-from ..config import get_data_dir
+from .. import store as pgrest  # aliased: `store` is the local name for a RequestStore
+from ..web.users import User
 from .models import AddResult, AggregatedResult, MediaSearchResult
 
 
@@ -47,77 +49,95 @@ class MediaRequest(BaseModel):
         return f"{self.result.title}{year}"
 
 
+_SELECT = "id,result,requested_by,requested_at,status,resolved_by,resolved_at,instance,note"
+
+
+def _to_request(row: dict) -> MediaRequest:
+    return MediaRequest(
+        id=row["id"],
+        result=MediaSearchResult.model_validate(row["result"]),
+        requested_by=row["requested_by"],
+        requested_at=row["requested_at"],
+        status=RequestStatus(row["status"]),
+        resolved_by=row["resolved_by"],
+        resolved_at=row["resolved_at"],
+        instance=row["instance"],
+        note=row["note"],
+    )
+
+
 class RequestStore:
-    def __init__(self, path: Path | None = None):
-        self.path = path or (get_data_dir() / "requests.json")
-        self._lock = threading.Lock()
-        self._requests: dict[str, MediaRequest] = {}
-        self._loaded_mtime: float | None = None
-        self._load()
+    """The queue as one logged-in user sees it.
 
-    def _load(self) -> None:
-        if not self.path.is_file():
-            self._requests = {}
-            self._loaded_mtime = None
-            return
-        raw = json.loads(self.path.read_text())
-        self._requests = {r["id"]: MediaRequest.model_validate(r) for r in raw.get("requests", [])}
-        self._loaded_mtime = self.path.stat().st_mtime
+    Every method is an HTTP call to PostgREST with ``user``'s token, so the
+    rows that come back are already the ones RLS permits. Nothing here filters
+    for security; the database does that.
+    """
 
-    def _refresh(self) -> None:
-        mtime = self.path.stat().st_mtime if self.path.is_file() else None
-        if mtime != self._loaded_mtime:
-            self._load()
-
-    def _save(self) -> None:
-        payload = {"requests": [r.model_dump(mode="json") for r in self._requests.values()]}
-        tmp = self.path.with_suffix(".json.tmp")
-        tmp.write_text(json.dumps(payload, indent=2) + "\n")
-        os.chmod(tmp, 0o600)
-        tmp.replace(self.path)
-        self._loaded_mtime = self.path.stat().st_mtime
+    def __init__(self, token: str, user: User):
+        self.token = token
+        self.user = user
 
     # --- queries ---
 
     def get(self, request_id: str) -> MediaRequest | None:
-        with self._lock:
-            self._refresh()
-            return self._requests.get(request_id)
+        rows = pgrest.select_requests(self.token, {"id": f"eq.{request_id}", "select": _SELECT})
+        return _to_request(rows[0]) if rows else None
 
     def list(self, status: RequestStatus | None = None, requested_by: str | None = None) -> list[MediaRequest]:
-        with self._lock:
-            self._refresh()
-            items = list(self._requests.values())
+        params = {"select": _SELECT, "order": "requested_at.desc"}
         if status is not None:
-            items = [r for r in items if r.status == status]
+            params["status"] = f"eq.{status.value}"
         if requested_by is not None:
-            items = [r for r in items if r.requested_by == requested_by]
-        return sorted(items, key=lambda r: r.requested_at, reverse=True)
+            params["requested_by"] = f"eq.{requested_by}"
+        return [_to_request(r) for r in pgrest.select_requests(self.token, params)]
 
     def pending_count(self) -> int:
-        return len(self.list(status=RequestStatus.PENDING))
+        rows = pgrest.select_requests(self.token, {"select": "id", "status": f"eq.{RequestStatus.PENDING.value}"})
+        return len(rows)
 
     def find_pending(self, result: MediaSearchResult) -> MediaRequest | None:
-        """An open request for the same title (matched by external id)."""
-        key = result.external_key
-        for request in self.list(status=RequestStatus.PENDING):
-            if request.result.external_key == key:
-                return request
-        return None
+        """This user's own open request for the same title (matched by
+        external id).
+
+        Scoped to the caller, unlike the JSON store, which scanned the whole
+        queue. Under RLS a non-admin cannot see anyone else's pending rows, so
+        a global check is not something the app can honestly do any more —
+        two people wanting the same title now file two requests and the admin
+        sees both.
+        """
+        rows = pgrest.select_requests(
+            self.token,
+            {
+                "select": _SELECT,
+                "user_id": f"eq.{self.user.id}",
+                "status": f"eq.{RequestStatus.PENDING.value}",
+                "external_key": f"eq.{result.external_key}",
+                "limit": "1",
+            },
+        )
+        return _to_request(rows[0]) if rows else None
 
     # --- mutations ---
 
     def create(self, result: MediaSearchResult, requested_by: str) -> MediaRequest:
-        """File a request; returns the existing open one instead of a duplicate."""
+        """File a request; returns this user's existing open one instead of a
+        duplicate."""
         existing = self.find_pending(result)
         if existing is not None:
             return existing
-        request = MediaRequest(result=result, requested_by=requested_by)
-        with self._lock:
-            self._refresh()
-            self._requests[request.id] = request
-            self._save()
-        return request
+        row = pgrest.insert_request(
+            self.token,
+            {
+                "id": uuid.uuid4().hex[:12],
+                "user_id": self.user.id,
+                "requested_by": requested_by,
+                "result": result.model_dump(mode="json"),
+                "external_key": result.external_key,
+                "status": RequestStatus.PENDING.value,
+            },
+        )
+        return _to_request(row)
 
     def deny(self, request_id: str, admin: str, note: str = "") -> MediaRequest:
         return self._resolve(request_id, RequestStatus.DENIED, admin, note=note)
@@ -127,47 +147,50 @@ class RequestStore:
 
     def annotate(self, request_id: str, note: str) -> None:
         """Attach a note to a still-pending request (e.g. a failed add)."""
-        with self._lock:
-            self._refresh()
-            request = self._requests.get(request_id)
-            if request is not None and request.status == RequestStatus.PENDING:
-                self._requests[request_id] = request.model_copy(update={"note": note})
-                self._save()
+        pgrest.update_request(
+            self.token,
+            request_id,
+            {"note": note},
+            extra={"status": f"eq.{RequestStatus.PENDING.value}"},
+        )
 
     def withdraw(self, request_id: str, username: str) -> None:
         """Requester deletes their own pending request."""
-        with self._lock:
-            self._refresh()
-            request = self._requests.get(request_id)
-            if request is None:
-                raise KeyError(f"No such request: {request_id}")
-            if request.requested_by != username or request.status != RequestStatus.PENDING:
-                raise ValueError("Only your own pending requests can be withdrawn")
-            del self._requests[request_id]
-            self._save()
+        deleted = pgrest.delete_request(
+            self.token,
+            request_id,
+            extra={"status": f"eq.{RequestStatus.PENDING.value}", "requested_by": f"eq.{username}"},
+        )
+        if deleted:
+            return
+        if self.get(request_id) is None:
+            raise KeyError(f"No such request: {request_id}")
+        raise ValueError("Only your own pending requests can be withdrawn")
 
     def _resolve(
         self, request_id: str, status: RequestStatus, admin: str, note: str = "", instance: str = ""
     ) -> MediaRequest:
-        with self._lock:
-            self._refresh()
-            request = self._requests.get(request_id)
-            if request is None:
-                raise KeyError(f"No such request: {request_id}")
-            if request.status != RequestStatus.PENDING:
-                raise ValueError(f"Request already {request.status.value}")
-            resolved = request.model_copy(
-                update={
-                    "status": status,
-                    "resolved_by": admin,
-                    "resolved_at": datetime.now(UTC),
-                    "note": note,
-                    "instance": instance,
-                }
-            )
-            self._requests[request_id] = resolved
-            self._save()
-            return resolved
+        # status=eq.pending is the guard, applied by the database rather than
+        # by a read-then-write here, so two admins racing on the same request
+        # cannot both win.
+        rows = pgrest.update_request(
+            self.token,
+            request_id,
+            {
+                "status": status.value,
+                "resolved_by": admin,
+                "resolved_at": datetime.now(UTC).isoformat(),
+                "note": note,
+                "instance": instance,
+            },
+            extra={"status": f"eq.{RequestStatus.PENDING.value}"},
+        )
+        if rows:
+            return _to_request(rows[0])
+        current = self.get(request_id)
+        if current is None:
+            raise KeyError(f"No such request: {request_id}")
+        raise ValueError(f"Request already {current.status.value}")
 
 
 async def fulfill_request(store: RequestStore, request_id: str, instance_name: str, admin: str, config) -> AddResult:
