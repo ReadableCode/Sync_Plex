@@ -10,6 +10,7 @@ through the UI.
 """
 
 import asyncio
+import time
 import uuid
 
 import pytest
@@ -260,6 +261,10 @@ def test_disable_revokes_the_live_token(stores):
     try:
         store = _login(users, username)
         assert auth.validate_token(store.token, users) is not None
+        # iat is second-granular and validate_token grants it a 1s grace, so
+        # the re-enable's password_changed_at bump must land in a later second
+        # than the login or the old token slips through.
+        time.sleep(1.1)
         users.set_disabled(username, True)
         assert auth.validate_token(store.token, users) is None
         users.set_disabled(username, False)
