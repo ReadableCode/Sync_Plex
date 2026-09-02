@@ -1,7 +1,8 @@
 """Admin ntfy notifications for the request queue.
 
-Reuses the same self-hosted ntfy instance and ``house_power`` topic the
-other home automation already publishes to. The post is done directly with
+Reuses the same self-hosted ntfy instance and the ``homelab`` topic the
+homelab alerting (Uptime Kuma on nukbuntu) publishes to, so one phone
+subscription covers both. The post is done directly with
 ``httpx`` (a main dependency) rather than via readable_utils.ntfy_tools —
 the docker image builds with ``--no-default-groups``, so nothing from the
 drive-sync group (readable-utils, requests, pandas) exists in the container.
@@ -24,7 +25,7 @@ from .requests import MediaRequest
 
 logger = logging.getLogger(__name__)
 
-NTFY_TOPIC = "house_power"
+NTFY_TOPIC = "homelab"
 
 
 def notify_new_request(request: MediaRequest) -> None:
