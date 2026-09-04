@@ -10,3 +10,4 @@ Re-run an entry's `verify:` command before acting on it.
 
 | Issue | Found | Status |
 |-------|-------|--------|
+| [tests: `uv run pytest` deletes every row in the live request queue](tests-wipe-live-request-queue.md) | 2026-09-04 | open |
