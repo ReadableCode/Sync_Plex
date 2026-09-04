@@ -21,6 +21,8 @@ import threading
 import httpx
 
 from ..config import load_env
+from .health import format_bytes
+from .models import MediaType
 from .requests import MediaRequest
 
 logger = logging.getLogger(__name__)
@@ -28,16 +30,31 @@ logger = logging.getLogger(__name__)
 NTFY_TOPIC = "homelab"
 
 
-def notify_new_request(request: MediaRequest) -> None:
+def notify_new_request(request: MediaRequest, estimate_bytes: int | None = None) -> None:
     """Tell the admins a request is waiting for approval at /requests.
+
+    ``estimate_bytes`` is the worst-case size the add would take, so the
+    admin can tell from the phone ping whether it is a 4 GB movie or a
+    200 GB back catalogue before opening the queue.
 
     Runs in a daemon thread so a slow or unreachable ntfy never stalls
     the UI handler that filed the request.
     """
-    threading.Thread(target=_send, args=(request,), daemon=True).start()
+    threading.Thread(target=_send, args=(request, estimate_bytes), daemon=True).start()
 
 
-def _send(request: MediaRequest) -> None:
+def request_message(request: MediaRequest, estimate_bytes: int | None = None) -> str:
+    """'Sync_Plex: jo requested Severance (2022) — show, 3 seasons, ~40 GB — awaiting approval'"""
+    result = request.result
+    facts = ["show" if result.media_type == MediaType.TV else "movie"]
+    if result.season_count:
+        facts.append(f"{result.season_count} seasons")
+    if estimate_bytes:
+        facts.append(f"~{format_bytes(estimate_bytes)}")
+    return f"Sync_Plex: {request.requested_by} requested {request.title_line} — {', '.join(facts)} — awaiting approval"
+
+
+def _send(request: MediaRequest, estimate_bytes: int | None = None) -> None:
     load_env()
     url = os.environ.get("NTFY_URL")
     if not url:
@@ -47,7 +64,7 @@ def _send(request: MediaRequest) -> None:
         response = httpx.post(
             f"{url}/{NTFY_TOPIC}",
             auth=(os.environ.get("NTFY_USERNAME", ""), os.environ.get("NTFY_PASSWORD", "")),
-            data={"message": f"Sync_Plex: {request.requested_by} requested {request.title_line} — awaiting approval"},
+            data={"message": request_message(request, estimate_bytes)},
             timeout=10,
         )
         if not response.is_success:

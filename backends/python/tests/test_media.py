@@ -3,10 +3,11 @@ import asyncio
 import httpx
 import pytest
 
+from engine.media import aggregation
 from engine.media.aggregation import merge_lookups
 from engine.media.clients import RadarrClient, SonarrClient
 from engine.media.config import ArrInstance, MediaConfig, load_media_config
-from engine.media.models import MediaType, PresenceState
+from engine.media.models import AggregatedResult, InstanceStatus, MediaSearchResult, MediaType, PresenceState
 from engine.models import Machine, Service
 
 
@@ -282,3 +283,52 @@ def test_radarr_status_size_on_disk():
     assert status.size_on_disk == 9_000_000_000
     # not downloaded -> no size rather than a misleading 0-byte label
     assert client.to_status({"id": 7, "hasFile": False, "sizeOnDisk": 0}).size_on_disk is None
+
+
+def _config_one_sonarr() -> MediaConfig:
+    return MediaConfig(
+        sonarr=[ArrInstance(name="sonarr-behemoth", base_url="http://x:8989", api_key="k")],
+        radarr=[],
+        plex=[],
+    )
+
+
+def _tv(title: str, tvdb_id: int) -> AggregatedResult:
+    return AggregatedResult(result=MediaSearchResult(media_type=MediaType.TV, title=title, tvdb_id=tvdb_id))
+
+
+def test_lookup_status_matches_by_external_key(monkeypatch):
+    seen: list[str] = []
+
+    async def fake_search(term, media_type, config):
+        seen.append(term)
+        wanted = _tv("Severance", 371980)
+        wanted.statuses.append(InstanceStatus(instance="sonarr-behemoth", state=PresenceState.NOT_PRESENT))
+        return [_tv("Severance: Behind", 999), wanted]
+
+    monkeypatch.setattr(aggregation, "search_everywhere", fake_search)
+    found = asyncio.run(aggregation.lookup_status(_tv("Severance", 371980).result, _config_one_sonarr()))
+    assert seen == ["tvdb:371980"]  # external id is the search term, not the title
+    assert found.result.tvdb_id == 371980
+    assert [s.instance for s in found.statuses] == ["sonarr-behemoth"]
+
+
+def test_lookup_status_unfound_title_has_no_statuses(monkeypatch):
+    async def fake_search(term, media_type, config):
+        return []
+
+    monkeypatch.setattr(aggregation, "search_everywhere", fake_search)
+    found = asyncio.run(aggregation.lookup_status(_tv("Nothing", 1).result, _config_one_sonarr()))
+    assert found.result.title == "Nothing"
+    assert found.statuses == []
+
+
+def test_refresh_status_keeps_old_result_when_nothing_comes_back(monkeypatch):
+    async def fake_search(term, media_type, config):
+        return []
+
+    monkeypatch.setattr(aggregation, "search_everywhere", fake_search)
+    stale = _tv("Severance", 371980)
+    stale.statuses.append(InstanceStatus(instance="sonarr-behemoth", state=PresenceState.UNREACHABLE))
+    kept = asyncio.run(aggregation.refresh_status(stale, _config_one_sonarr(), include_plex=False))
+    assert kept is stale

@@ -13,7 +13,9 @@ admins add titles directly and work the approval queue at /requests; users
 can only file requests there (engine/media/requests).
 """
 
+import asyncio
 import os
+from collections.abc import Awaitable, Callable
 
 from .. import bootstrap
 from ..config import get_data_dir
@@ -21,12 +23,13 @@ from ..media.aggregation import (
     add_to_instance,
     check_plex_availability,
     enrich_tv_statuses,
+    lookup_status,
     refresh_status,
     search_everywhere,
 )
 from ..media.config import MediaConfig, load_media_config
 from ..media.health import check_all_servers, estimate_add_bytes, format_bytes
-from ..media.models import AggregatedResult, MediaType, PresenceState, ServerHealth
+from ..media.models import AggregatedResult, MediaSearchResult, MediaType, PresenceState, ServerHealth
 from ..media.notifications import notify_new_request
 from ..media.requests import MediaRequest, RequestStatus, RequestStore, fulfill_request
 from . import pwa
@@ -227,6 +230,45 @@ def _stats_line(health: ServerHealth) -> str:
     return " · ".join(parts)
 
 
+def _meta_line(result: MediaSearchResult) -> str:
+    """'HBO · continuing · 3 seasons · Drama, Thriller' — the lookup facts worth a glance."""
+    return " · ".join(
+        x
+        for x in (
+            result.network,
+            result.status,
+            f"{result.season_count} seasons" if result.season_count else "",
+            ", ".join(result.genres[:3]),
+        )
+        if x
+    )
+
+
+def _headroom_line(estimate: int, free: int | None, instance_name: str) -> tuple[str, str] | None:
+    """What is left on the instance after an add of ``estimate`` bytes: (text, css class).
+
+    A warning when the add would not fit, plain free space when it would,
+    nothing when the server's disk reading is unknown."""
+    if free is None:
+        return None
+    if estimate > free:
+        return (
+            f"⚠ needs ~{format_bytes(estimate)} but only {format_bytes(free)} free on {_short(instance_name)}",
+            "text-xs state-partial",
+        )
+    return f"{format_bytes(free)} free on {_short(instance_name)}", "text-xs muted"
+
+
+def _server_option(name: str, status, estimate: int, free: int | None) -> str:
+    """Label for the approval picker: the cost of putting the title here, or why it is moot."""
+    if status is not None and status.state != PresenceState.NOT_PRESENT:
+        return f"{name} · {_badge(status)[0]}"
+    label = f"{name} · ~{format_bytes(estimate)}"
+    if free is not None:
+        label += f" · {format_bytes(free)} free"
+    return label
+
+
 def run_web(host: str = "127.0.0.1", port: int = 8788) -> None:  # noqa: C901 — wires every page
     from fastapi import Request
     from fastapi.responses import RedirectResponse
@@ -298,6 +340,35 @@ def run_web(host: str = "127.0.0.1", port: int = 8788) -> None:  # noqa: C901 �
 
     def _section(title: str) -> None:
         ui.html(f'<span class="sh-slash">//</span> {title}').classes("section-h")
+
+    def _render_statuses(aggregated: AggregatedResult) -> None:
+        """One line per instance — presence, missing count, size on disk — plus
+        season chips for TV. Shared by the search dialog and the request queue."""
+        for status in aggregated.statuses:
+            label, state_class = _badge(status)
+            line = f"{status.instance}: {label}"
+            if status.state == PresenceState.MONITORED_INCOMPLETE and status.missing_episode_count is not None:
+                line += f" — missing {status.missing_episode_count}/{status.total_episode_count} eps"
+            if status.size_on_disk:
+                line += f" · {format_bytes(status.size_on_disk)}"
+            ui.label(line).classes(state_class)
+            if status.seasons:
+                chips = "  ".join(
+                    _season_chip(s)
+                    for s in sorted(status.seasons, key=lambda s: (s.season_number == 0, s.season_number))
+                    if s.total_episode_count or s.episode_count or s.monitored
+                )
+                if chips:
+                    ui.label(chips).classes("text-xs muted pl-4")
+
+    def _render_plex(aggregated: AggregatedResult) -> None:
+        for plex in aggregated.plex:
+            if plex.available:
+                ui.label(f"▶ {plex.server}: watch-ready").classes("state-complete font-bold")
+            elif plex.error:
+                ui.label(f"✗ {plex.server}: unreachable").classes("state-error")
+            else:
+                ui.label(f"· {plex.server}: not in library").classes("state-absent")
 
     def _logout() -> None:
         clear_session(app.storage.user)
@@ -471,16 +542,7 @@ def run_web(host: str = "127.0.0.1", port: int = 8788) -> None:  # noqa: C901 �
                         ui.image(r.poster_url).classes("w-24 rounded shrink-0")
                     with ui.column().classes("gap-1 min-w-0"):
                         ui.label(f"{r.title}{year}").classes("text-xl font-bold")
-                        meta = " · ".join(
-                            x
-                            for x in (
-                                r.network,
-                                r.status,
-                                f"{r.season_count} seasons" if r.season_count else "",
-                                ", ".join(r.genres[:3]),
-                            )
-                            if x
-                        )
+                        meta = _meta_line(r)
                         if meta:
                             ui.label(meta).classes("text-xs muted")
                         if r.overview:
@@ -494,28 +556,7 @@ def run_web(host: str = "127.0.0.1", port: int = 8788) -> None:  # noqa: C901 �
                     status_area.clear()
                     with status_area:
                         _section("instances")
-                        for status in aggregated.statuses:
-                            label, state_class = _badge(status)
-                            line = f"{status.instance}: {label}"
-                            if (
-                                status.state == PresenceState.MONITORED_INCOMPLETE
-                                and status.missing_episode_count is not None
-                            ):
-                                line += f" — missing {status.missing_episode_count}/{status.total_episode_count} eps"
-                            if status.size_on_disk:
-                                line += f" · {format_bytes(status.size_on_disk)}"
-                            ui.label(line).classes(state_class)
-                            if status.seasons:
-                                chips = "  ".join(
-                                    _season_chip(s)
-                                    for s in sorted(
-                                        status.seasons, key=lambda s: (s.season_number == 0, s.season_number)
-                                    )
-                                    if s.total_episode_count or s.episode_count or s.monitored
-                                )
-                                if chips:
-                                    ui.label(chips).classes("text-xs muted pl-4")
-
+                        _render_statuses(aggregated)
                     render_actions()
 
                 def render_actions() -> None:
@@ -536,17 +577,17 @@ def run_web(host: str = "127.0.0.1", port: int = 8788) -> None:  # noqa: C901 �
                             f"add to {status.instance} · ~{format_bytes(estimate)}",
                             on_click=lambda s=status: do_add(s.instance),
                         ).classes("w-full").props("size=lg color=positive text-color=dark")
-                        free = health.disk_free_bytes if health else None
-                        if free is not None:
-                            if estimate > free:
-                                ui.label(
-                                    f"⚠ needs ~{format_bytes(estimate)} but only "
-                                    f"{format_bytes(free)} free on {_short(status.instance)}"
-                                ).classes("text-xs state-partial")
-                            else:
-                                ui.label(
-                                    f"{format_bytes(free)} free on {_short(status.instance)}"
-                                ).classes("text-xs muted")
+                        headroom = _headroom_line(estimate, health.disk_free_bytes if health else None, status.instance)
+                        if headroom:
+                            ui.label(headroom[0]).classes(headroom[1])
+
+                def _worst_case_estimate() -> int | None:
+                    """Bytes on the hungriest server an admin could put it on; None
+                    when nothing is absent (every server has it, or is down)."""
+                    absent = [s for s in aggregated.statuses if s.state == PresenceState.NOT_PRESENT]
+                    if not absent:
+                        return None
+                    return max(estimate_add_bytes(aggregated, state["health"].get(s.instance)) for s in absent)
 
                 def _request_actions() -> None:
                     """Non-admins never add directly — they file a request
@@ -561,11 +602,9 @@ def run_web(host: str = "127.0.0.1", port: int = 8788) -> None:  # noqa: C901 �
                             "flat no-caps"
                         ).classes("w-full")
                         return
-                    absent = [s for s in aggregated.statuses if s.state == PresenceState.NOT_PRESENT]
-                    if not absent:
+                    estimate = _worst_case_estimate()
+                    if estimate is None:
                         return  # nothing to request — every server has it (or is down)
-                    # worst case across the servers an admin could put it on
-                    estimate = max(estimate_add_bytes(aggregated, state["health"].get(s.instance)) for s in absent)
                     ui.button(
                         f"request this title · ~{format_bytes(estimate)}", on_click=do_request
                     ).classes("w-full").props("size=lg color=positive text-color=dark")
@@ -577,7 +616,7 @@ def run_web(host: str = "127.0.0.1", port: int = 8788) -> None:  # noqa: C901 �
                     already_pending = _requests(user).find_pending(r) is not None
                     request = _requests(user).create(r, user.username)
                     if not already_pending:  # duplicate clicks return the existing request — don't re-ping
-                        notify_new_request(request)
+                        notify_new_request(request, estimate_bytes=_worst_case_estimate())
                     ui.notify(f"requested '{request.result.title}' — waiting for admin approval", position="top")
                     render_actions()
 
@@ -593,13 +632,7 @@ def run_web(host: str = "127.0.0.1", port: int = 8788) -> None:  # noqa: C901 �
                     with plex_area:
                         if aggregated.plex:
                             _section("plex")
-                        for plex in aggregated.plex:
-                            if plex.available:
-                                ui.label(f"▶ {plex.server}: watch-ready").classes("state-complete font-bold")
-                            elif plex.error:
-                                ui.label(f"✗ {plex.server}: unreachable").classes("state-error")
-                            else:
-                                ui.label(f"· {plex.server}: not in library").classes("state-absent")
+                        _render_plex(aggregated)
 
                 async def do_add(instance_name: str) -> None:
                     add_result = await add_to_instance(aggregated, instance_name, config)
@@ -668,6 +701,11 @@ def run_web(host: str = "127.0.0.1", port: int = 8788) -> None:  # noqa: C901 �
             ui.navigate.to("/login")
             return
 
+        # Server health for the admin cards, fetched once per render. `generation`
+        # lets an in-flight fill notice the queue was re-rendered underneath it
+        # (approve/deny re-render immediately) and stop writing into dead cards.
+        state: dict = {"health": {}, "generation": 0}
+
         def _request_meta(request: MediaRequest) -> str:
             kind = "show" if request.result.media_type == MediaType.TV else "movie"
             return f"{kind} · requested by {request.requested_by} · {request.requested_at:%Y-%m-%d %H:%M}"
@@ -680,20 +718,37 @@ def run_web(host: str = "127.0.0.1", port: int = 8788) -> None:  # noqa: C901 �
                 detail = f"→ {request.instance}" if request.instance else (request.note or "")
                 ui.label(f"{request.requested_by} {detail}".strip()).classes("text-xs muted shrink-0")
 
-        def _admin_card(request: MediaRequest) -> None:
+        def _admin_card(request: MediaRequest) -> Callable[[], Awaitable[None]]:
+            """Render one pending request for the admin and return the coroutine
+            that fills in the live server picture once the servers have answered.
+
+            The card shows what the search dialog would show an admin adding the
+            title directly — presence and size on every instance, Plex state, the
+            estimated cost of the add and what each server has free — so the
+            approve/deny/which-server call can be made from the queue alone.
+            """
+            r = request.result
             with ui.card().classes("w-full gap-2"):
                 with ui.row().classes("items-start no-wrap w-full gap-4"):
-                    if request.result.poster_url:
-                        ui.image(request.result.poster_url).classes("w-16 rounded shrink-0")
+                    if r.poster_url:
+                        ui.image(r.poster_url).classes("w-16 rounded shrink-0")
                     with ui.column().classes("gap-1 min-w-0 grow"):
                         ui.label(request.title_line).classes("text-lg font-bold")
                         ui.label(_request_meta(request)).classes("text-xs muted")
-                        if request.result.overview:
-                            ui.label(request.result.overview[:200]).classes("text-xs muted")
+                        meta = _meta_line(r)
+                        if meta:
+                            ui.label(meta).classes("text-xs muted")
+                        if r.overview:
+                            ui.label(r.overview[:200]).classes("text-xs muted")
                         if request.note:
                             ui.label(request.note).classes("text-xs state-error")
 
-                instance_names = [i.name for i in config.arr_instances(request.result.media_type.value)]
+                detail_area = ui.column().classes("w-full gap-1")
+                with detail_area:
+                    ui.label("checking servers…").classes("text-xs muted")
+
+                instance_names = [i.name for i in config.arr_instances(r.media_type.value)]
+                default = instance_names[0] if instance_names else None
 
                 async def do_approve() -> None:
                     if not target.value:
@@ -731,7 +786,7 @@ def run_web(host: str = "127.0.0.1", port: int = 8788) -> None:  # noqa: C901 �
 
                 with ui.row().classes("items-center w-full no-wrap gap-2"):
                     target = (
-                        ui.select(instance_names, value=instance_names[0] if instance_names else None, label="server")
+                        ui.select(instance_names, value=default, label="server")
                         .props("outlined dense options-dense")
                         .classes("grow")
                     )
@@ -739,6 +794,62 @@ def run_web(host: str = "127.0.0.1", port: int = 8788) -> None:  # noqa: C901 �
                     ui.button("deny", on_click=do_deny).props("flat no-caps color=info")
                 if not instance_names:
                     ui.label("no instances configured for this media type").classes("text-xs state-error")
+
+            generation = state["generation"]
+
+            async def fill() -> None:
+                try:
+                    aggregated = await lookup_status(r, config)
+                    await asyncio.gather(
+                        enrich_tv_statuses(aggregated, config),
+                        check_plex_availability(aggregated, config) if config.plex else asyncio.sleep(0),
+                    )
+                except Exception as exc:  # noqa: BLE001 — the queue must stay usable with servers down
+                    if generation == state["generation"]:
+                        detail_area.clear()
+                        with detail_area:
+                            ui.label(f"couldn't reach the servers: {exc}"[:160]).classes("text-xs state-error")
+                    return
+                if generation != state["generation"]:
+                    return  # the queue re-rendered while we were fetching
+
+                options: dict[str, str] = {}
+                best: tuple[int, str] | None = None  # (free bytes, instance) with the most room to spare
+                detail_area.clear()
+                with detail_area:
+                    if aggregated.statuses:
+                        _render_statuses(aggregated)
+                    else:
+                        ui.label("no server could look this title up").classes("text-xs state-error")
+                    _render_plex(aggregated)
+                    for name in instance_names:
+                        status = aggregated.status_for(name)
+                        health = state["health"].get(name)
+                        estimate = estimate_add_bytes(aggregated, health)
+                        free = health.disk_free_bytes if health else None
+                        options[name] = _server_option(name, status, estimate, free)
+                        if status is not None and status.state != PresenceState.NOT_PRESENT:
+                            continue
+                        headroom = _headroom_line(estimate, free, name)
+                        if headroom:
+                            ui.label(headroom[0]).classes(headroom[1])
+                        if free is not None and estimate <= free and (best is None or free > best[0]):
+                            best = (free, name)
+                # Preselect the absent server with the most room, unless the
+                # admin already changed the pick while the servers were answering.
+                value = best[1] if best and target.value == default else target.value
+                target.set_options(options, value=value)
+
+            return fill
+
+        async def _fill_cards(fills: list[Callable[[], Awaitable[None]]]) -> None:
+            # Health first: it primes the library cache the per-title lookups then hit,
+            # so N pending requests cost one library fetch per instance, not N.
+            try:
+                state["health"] = {h.name: h for h in await check_all_servers(config)}
+            except Exception:  # noqa: BLE001 — no disk readings, but the cards still get presence
+                state["health"] = {}
+            await asyncio.gather(*(fill() for fill in fills))
 
         def _own_card(request: MediaRequest) -> None:
             label, badge_class = REQUEST_BADGE[request.status]
@@ -764,6 +875,7 @@ def run_web(host: str = "127.0.0.1", port: int = 8788) -> None:  # noqa: C901 �
                     ui.button("withdraw", on_click=withdraw).props("flat dense no-caps size=sm color=info")
 
         def render() -> None:
+            state["generation"] += 1
             area.clear()
             with area:
                 if user.is_admin:
@@ -771,8 +883,10 @@ def run_web(host: str = "127.0.0.1", port: int = 8788) -> None:  # noqa: C901 �
                     _section(f"pending requests ({len(pending)})")
                     if not pending:
                         ui.label("queue is empty.").classes("muted")
-                    for request in pending:
-                        _admin_card(request)
+                    fills = [_admin_card(request) for request in pending]
+                    if fills:
+                        # Cards render at once; the server picture streams in behind them.
+                        ui.timer(0.0, lambda: _fill_cards(fills), once=True)
                     history = [r for r in _requests(user).list() if r.status != RequestStatus.PENDING][:30]
                     if history:
                         _section("history")

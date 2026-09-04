@@ -15,6 +15,7 @@ from .models import (
     AggregatedResult,
     EpisodeDetail,
     InstanceStatus,
+    MediaSearchResult,
     MediaType,
     PresenceState,
 )
@@ -149,6 +150,27 @@ async def check_plex_availability(
     return aggregated
 
 
+async def lookup_status(
+    result: MediaSearchResult,
+    config: MediaConfig | None = None,
+) -> AggregatedResult:
+    """Presence of one title on every instance, found by its external ID.
+
+    Serves the library cache (unlike ``refresh_status``), so a page that looks
+    up many titles — the request queue — does not refetch every library per
+    title. When no instance can find the title (all down, or an id nothing
+    knows) the result comes back with no statuses at all.
+    """
+    if config is None:
+        config = load_media_config()
+    # tvdb:/tmdb: keys work as lookup terms; title-keyed results fall back to a title search
+    term = result.title if result.external_key.startswith("title:") else result.external_key
+    for candidate in await search_everywhere(term, result.media_type, config):
+        if candidate.result.external_key == result.external_key:
+            return candidate
+    return AggregatedResult(result=result)
+
+
 async def refresh_status(
     aggregated: AggregatedResult,
     config: MediaConfig | None = None,
@@ -158,19 +180,12 @@ async def refresh_status(
     if config is None:
         config = load_media_config()
     invalidate_library_cache()  # an explicit refresh must not serve cached presence
-    result = aggregated.result
-    # tvdb:/tmdb: keys work as lookup terms; title-keyed results fall back to a title search
-    term = result.title if result.external_key.startswith("title:") else result.external_key
-
-    refreshed = await search_everywhere(term, result.media_type, config)
-    for candidate in refreshed:
-        if candidate.result.external_key == result.external_key:
-            if include_plex:
-                await check_plex_availability(candidate, config)
-            return candidate
-
-    # Nothing came back (e.g. all instances down) — keep what we had
-    return aggregated
+    found = await lookup_status(aggregated.result, config)
+    if not found.statuses:
+        return aggregated  # nothing came back (e.g. all instances down) — keep what we had
+    if include_plex:
+        await check_plex_availability(found, config)
+    return found
 
 
 async def enrich_tv_statuses(
