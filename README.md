@@ -16,11 +16,17 @@ syncplex tui                       # full-screen remote (ctrl+s = drive sync)
 syncdrive /Volumes/ExtSSD/Media    # mirror configured media onto a drive
 ```
 
-(`syncplex` and `syncdrive` are shell functions from dotfiles that `uv run`
-into this repo — nothing is installed on PATH. From a bare clone, or on
-Windows where those functions don't exist, run from the repo root:
-`uv run --project backends/python syncplex ...` and
-`uv run --project backends/python syncplex-drive-sync <path> ...`. See
+(`syncplex` and `syncdrive` are shell functions from my dotfiles that `uv run`
+into this repo — nothing is installed on PATH, and neither `syncplex` nor
+`syncplex-drive-sync` works as a bare command without them. Without those
+functions, or on Windows, run from the repo root:
+
+```bash
+uv run --project backends/python syncplex ...
+uv run --project backends/python syncplex-drive-sync <path> [--yes]
+```
+
+`syncdrive` is just the second line. See
 [Drive sync on Windows](#drive-sync) for the Windows specifics.)
 
 ## Commands
@@ -36,7 +42,7 @@ All commands are flat — no nested groups except `users`.
 | `syncplex tui` | Textual TUI: search/add, plus drive sync on `ctrl+s` |
 | `syncplex web [--host IP] [--port 8788]` | The web UI (NiceGUI) |
 | `syncplex users <add\|list\|passwd\|role\|disable\|enable\|remove>` | Web UI accounts |
-| `syncplex-drive-sync <path> [--yes]` | Mirror configured media onto a drive |
+| `syncdrive <path> [--yes]` | Mirror configured media onto a drive (`uv run ... syncplex-drive-sync`) |
 
 Data commands take `--json` for scripting.
 
