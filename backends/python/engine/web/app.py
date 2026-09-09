@@ -29,8 +29,16 @@ from ..media.aggregation import (
 )
 from ..media.config import MediaConfig, load_media_config
 from ..media.health import check_all_servers, estimate_add_bytes, format_bytes
-from ..media.models import AggregatedResult, MediaSearchResult, MediaType, PresenceState, ServerHealth
+from ..media.models import AggregatedResult, MediaType, PresenceState, ServerHealth
 from ..media.notifications import notify_new_request
+from ..media.present import STATE_BADGE  # noqa: F401 — re-exported for callers that imported it from here
+from ..media.present import badge as _badge
+from ..media.present import headroom_line as _headroom_line
+from ..media.present import meta_line as _meta_line
+from ..media.present import season_chip as _season_chip
+from ..media.present import server_option as _server_option
+from ..media.present import short as _short
+from ..media.present import stats_line as _stats_line
 from ..media.requests import MediaRequest, RequestStatus, RequestStore, fulfill_request
 from . import pwa
 from .auth import (
@@ -42,13 +50,6 @@ from .auth import (
     session_token,
 )
 from .users import User, UserStore, db_reachable
-
-STATE_BADGE = {
-    PresenceState.MONITORED_COMPLETE: ("● complete", "state-complete"),
-    PresenceState.MONITORED_INCOMPLETE: ("◐ partial", "state-partial"),
-    PresenceState.NOT_PRESENT: ("○ not present", "state-absent"),
-    PresenceState.UNREACHABLE: ("✗ unreachable", "state-error"),
-}
 
 # readablecode "terminal navy" tokens (dotfiles design/tokens.css) plus the
 # Quasar overrides that map the existing markup onto them. This block is the
@@ -191,82 +192,6 @@ REQUEST_BADGE = {
     RequestStatus.APPROVED: ("✓ approved", "req-approved"),
     RequestStatus.DENIED: ("✗ denied", "req-denied"),
 }
-
-
-def _badge(status) -> tuple[str, str]:
-    label, color = STATE_BADGE[status.state]
-    # A movie is either downloaded or not — "partial" only makes sense for TV
-    if status.state == PresenceState.MONITORED_INCOMPLETE and status.missing_episode_count is None:
-        label = "◐ not downloaded"
-    return label, color
-
-
-def _short(instance_name: str) -> str:
-    """Compact instance label for badges: 'sonarr-behemoth' -> 'behemoth'."""
-    return instance_name.split("-", 1)[-1]
-
-
-def _season_chip(season) -> str:
-    """'✓S2 8/10 · 19.1 GB' — monitoring, have/total, and the season folder size."""
-    mark = "✓" if season.monitored else "✗"
-    label = "SP" if season.season_number == 0 else f"S{season.season_number}"
-    chip = f"{mark}{label} {season.episode_file_count}/{season.total_episode_count or season.episode_count}"
-    if season.size_on_disk:
-        chip += f" · {format_bytes(season.size_on_disk)}"
-    return chip
-
-
-def _stats_line(health: ServerHealth) -> str:
-    """'812 shows · 24,331 episodes · 18.9 TB' — only the parts this server has."""
-    parts = []
-    if health.series_count is not None:
-        parts.append(f"{health.series_count:,} shows")
-    if health.episode_count is not None:
-        parts.append(f"{health.episode_count:,} episodes")
-    if health.movie_count is not None:
-        parts.append(f"{health.movie_count:,} movies")
-    if health.library_size_bytes:
-        parts.append(format_bytes(health.library_size_bytes))
-    return " · ".join(parts)
-
-
-def _meta_line(result: MediaSearchResult) -> str:
-    """'HBO · continuing · 3 seasons · Drama, Thriller' — the lookup facts worth a glance."""
-    return " · ".join(
-        x
-        for x in (
-            result.network,
-            result.status,
-            f"{result.season_count} seasons" if result.season_count else "",
-            ", ".join(result.genres[:3]),
-        )
-        if x
-    )
-
-
-def _headroom_line(estimate: int, free: int | None, instance_name: str) -> tuple[str, str] | None:
-    """What is left on the instance after an add of ``estimate`` bytes: (text, css class).
-
-    A warning when the add would not fit, plain free space when it would,
-    nothing when the server's disk reading is unknown."""
-    if free is None:
-        return None
-    if estimate > free:
-        return (
-            f"⚠ needs ~{format_bytes(estimate)} but only {format_bytes(free)} free on {_short(instance_name)}",
-            "text-xs state-partial",
-        )
-    return f"{format_bytes(free)} free on {_short(instance_name)}", "text-xs muted"
-
-
-def _server_option(name: str, status, estimate: int, free: int | None) -> str:
-    """Label for the approval picker: the cost of putting the title here, or why it is moot."""
-    if status is not None and status.state != PresenceState.NOT_PRESENT:
-        return f"{name} · {_badge(status)[0]}"
-    label = f"{name} · ~{format_bytes(estimate)}"
-    if free is not None:
-        label += f" · {format_bytes(free)} free"
-    return label
 
 
 def run_web(host: str = "127.0.0.1", port: int = 8788) -> None:  # noqa: C901 — wires every page
@@ -517,11 +442,7 @@ def run_web(host: str = "127.0.0.1", port: int = 8788) -> None:  # noqa: C901 �
 
         def _result_card(aggregated: AggregatedResult) -> None:
             r = aggregated.result
-            with (
-                ui.card()
-                .classes("w-full cursor-pointer")
-                .on("click", lambda a=aggregated: open_detail(a))
-            ):
+            with ui.card().classes("w-full cursor-pointer").on("click", lambda a=aggregated: open_detail(a)):
                 with ui.row().classes("items-center no-wrap w-full gap-4"):
                     if r.poster_url:
                         ui.image(r.poster_url).classes("w-16 rounded shrink-0")
@@ -605,9 +526,9 @@ def run_web(host: str = "127.0.0.1", port: int = 8788) -> None:  # noqa: C901 �
                     estimate = _worst_case_estimate()
                     if estimate is None:
                         return  # nothing to request — every server has it (or is down)
-                    ui.button(
-                        f"request this title · ~{format_bytes(estimate)}", on_click=do_request
-                    ).classes("w-full").props("size=lg color=positive text-color=dark")
+                    ui.button(f"request this title · ~{format_bytes(estimate)}", on_click=do_request).classes(
+                        "w-full"
+                    ).props("size=lg color=positive text-color=dark")
                     ui.label("an admin approves it and picks the server before anything downloads").classes(
                         "text-xs muted"
                     )
@@ -754,9 +675,7 @@ def run_web(host: str = "127.0.0.1", port: int = 8788) -> None:  # noqa: C901 �
                     if not target.value:
                         ui.notify("pick a server first", color="warning", position="top")
                         return
-                    add_result = await fulfill_request(
-                        _requests(user), request.id, target.value, user.username, config
-                    )
+                    add_result = await fulfill_request(_requests(user), request.id, target.value, user.username, config)
                     ui.notify(
                         add_result.message,
                         color="positive" if add_result.ok else "negative",
@@ -767,9 +686,11 @@ def run_web(host: str = "127.0.0.1", port: int = 8788) -> None:  # noqa: C901 �
                 def do_deny() -> None:
                     with ui.dialog() as deny_dialog, ui.card().classes("w-80 gap-3"):
                         ui.label(f"deny '{request.result.title}'?").classes("font-bold")
-                        note_box = ui.input(placeholder="reason (shown to requester, optional)").props(
-                            "outlined dense"
-                        ).classes("w-full")
+                        note_box = (
+                            ui.input(placeholder="reason (shown to requester, optional)")
+                            .props("outlined dense")
+                            .classes("w-full")
+                        )
 
                         def confirm() -> None:
                             try:

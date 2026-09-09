@@ -5,6 +5,16 @@ from .web.users_cli import users_app
 
 app = typer.Typer(name="syncplex", help="Sync_Plex — household media remote")
 
+
+@app.callback(invoke_without_command=True)
+def main(ctx: typer.Context) -> None:
+    """Bare `syncplex` opens the TUI; the subcommands are the scripting surface."""
+    if ctx.invoked_subcommand is None:
+        from .media.tui.app import run_tui
+
+        run_tui()
+
+
 # Media commands are registered flat (syncplex search / seasons / add /
 # instances) — no `syncplex media ...` nesting.
 app.registered_commands.extend(media_app.registered_commands)

@@ -10,9 +10,9 @@ The household media app. Two things, one project:
 ## Quick start
 
 ```bash
+syncplex                           # the TUI: search, add or request, the queue (ctrl+s = drive sync)
 syncplex search "severance"        # status on every instance, merged
 syncplex add "severance" --to sonarr-elitedesk
-syncplex tui                       # full-screen remote (ctrl+s = drive sync)
 syncdrive                          # drive sync TUI: browse for the drive, edit its config, sync
 ```
 
@@ -39,7 +39,7 @@ All commands are flat — no nested groups except `users`.
 | `syncplex seasons "title" [--episodes]` | Per-season / per-episode breakdown |
 | `syncplex add "title" --to <instance>` | Add the top result to that instance |
 | `syncplex instances` | List configured instances (from personal_hosts.json + .env) |
-| `syncplex tui` | Textual TUI: search/add, plus drive sync on `ctrl+s` |
+| `syncplex` (or `syncplex tui`) | Textual TUI: search, add or request, the approval queue, server health; drive sync on `ctrl+s` |
 | `syncplex web [--host IP] [--port 8788]` | The web UI (NiceGUI) |
 | `syncplex users <add\|list\|passwd\|role\|disable\|enable\|remove>` | Web UI accounts |
 | `syncdrive [path] [--check]` | Drive sync TUI (`uv run ... syncplex-drive-sync`): browse for the drive, edit its config, sync with progress; `--check` prints the plan headless and exits 1 if the drive is behind its config |
@@ -52,6 +52,30 @@ holds the definitions it discovers (`cmdr syncplex` opens the remote,
 read-only probe). Both steps are marked `terminal`, so cmdr's TUI hands the
 screen over to them and resumes when they exit.
 
+## The TUI
+
+`syncplex tui` is the media remote and the request queue in one terminal app,
+signed in with the same accounts as the web UI (`ctrl+l`; the token is kept
+in `~/.config/syncplex/tui_session.json` for the session's 30 days, so it
+asks once). Under the header, a strip shows every server: up or down,
+latency, free disk, and, for an admin, how many requests are waiting.
+
+- **media**: type to search; `escape` hops to the results, where the letter
+  keys work, and `/` goes back to typing. `t` flips tv/movies, `↑↓` picks a
+  result, `r` refreshes it. The detail pane shows presence, seasons and size
+  per server, Plex watch-readiness, and what an add would cost against each
+  server's free space. `a` adds (a picker when more than one server could
+  take it, preselecting the one with the most room). Signed in as a
+  non-admin, `w` files or withdraws a request instead, with the same ntfy
+  ping the web sends.
+- **requests** (`ctrl+r`): the pending queue with the requester and when,
+  and the same server picture for the highlighted one. `enter` or `a`
+  approves onto a server (picker, best server preselected; the download
+  only starts when the server accepts, exactly like the web), `d` denies
+  with a reason, `r` refreshes. History sits below. A non-admin sees their
+  own requests and can withdraw with `w`.
+- `f1` or `?` opens the key reference, `ctrl+q` quits.
+
 ## How it's put together
 
 One Python project at `backends/python`, two packages, no internal REST API —
@@ -62,7 +86,8 @@ backends/python/
 ├── engine/            # media remote: inventory, per-service clients,
 │   │                  #   status aggregation, request queue
 │   ├── cli.py             # all the flat commands above
-│   ├── media/tui/app.py   # the TUI
+│   ├── media/present.py   # wording both UIs share (badges, sizes, headroom)
+│   ├── media/tui/         # the TUI: app.py (screens), session.py (login), theme.py
 │   └── web/               # web UI + its login/accounts
 ├── drive_sync/        # drive sync: drive_config, library (plex + fuzzy),
 │                      #   plan, transfer, screens (the TUI), cli
