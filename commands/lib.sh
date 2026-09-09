@@ -45,14 +45,15 @@ media_remote_check() {
 
 # --- syncdrive (drive sync) ---
 
-# cmdr hands a step no arguments, so the scraper gets no path and opens its
-# folder browser (ncdu-style: enter opens, backspace up, space picks) on the
-# terminal - the .cmd marks the step terminal so cmdr's TUI hands the screen
-# over. The scraper then prints its own plan and asks before touching files,
-# so cmdr's --yes never reaches it.
+# cmdr hands a step no arguments, so the drive-sync TUI gets no path and
+# opens with its folder browser (ncdu-style: enter opens, backspace up, space
+# picks); the .cmd marks the step terminal so cmdr's TUI hands the screen
+# over. The TUI confirms before touching files, so cmdr's --yes never
+# reaches it. The check is the headless --check, which needs the folder, so
+# it asks for one first (default ~/Media, the syncdrive shell function's).
 _drive_sync_needs_terminal() {
     if [ ! -t 0 ] || [ ! -t 1 ]; then
-        echo "drive_sync needs a terminal for the folder browser (stdin or stdout was not one)" >&2
+        echo "drive_sync needs a terminal (stdin or stdout was not one)" >&2
         return 1
     fi
 }
@@ -63,6 +64,16 @@ drive_sync() {
 }
 
 drive_sync_check() {
-    _drive_sync_needs_terminal || return 1
-    _syncplex syncplex-drive-sync --check
+    # Headless, so no terminal needed: the folder can be piped in.
+    local default="$HOME/Media" path
+    if ! read -r -p "drive media folder to check [$default]: " path; then
+        echo "drive_sync_check needs the folder on stdin (nothing was there)" >&2
+        return 1
+    fi
+    path="${path:-$default}"
+    if [ ! -d "$path" ]; then
+        echo "$path is not a directory (drive not mounted?)" >&2
+        return 1
+    fi
+    _syncplex syncplex-drive-sync "$path" --check
 }

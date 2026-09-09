@@ -13,7 +13,7 @@ The household media app. Two things, one project:
 syncplex search "severance"        # status on every instance, merged
 syncplex add "severance" --to sonarr-elitedesk
 syncplex tui                       # full-screen remote (ctrl+s = drive sync)
-syncdrive /Volumes/ExtSSD/Media    # mirror configured media onto a drive
+syncdrive                          # drive sync TUI: browse for the drive, edit its config, sync
 ```
 
 (`syncplex` and `syncdrive` are shell functions from my dotfiles that `uv run`
@@ -23,7 +23,7 @@ functions, or on Windows, run from the repo root:
 
 ```bash
 uv run --project backends/python syncplex ...
-uv run --project backends/python syncplex-drive-sync <path> [--yes]
+uv run --project backends/python syncplex-drive-sync [<path>] [--check]
 ```
 
 `syncdrive` is just the second line. See
@@ -42,16 +42,15 @@ All commands are flat — no nested groups except `users`.
 | `syncplex tui` | Textual TUI: search/add, plus drive sync on `ctrl+s` |
 | `syncplex web [--host IP] [--port 8788]` | The web UI (NiceGUI) |
 | `syncplex users <add\|list\|passwd\|role\|disable\|enable\|remove>` | Web UI accounts |
-| `syncdrive <path> [--yes\|--check]` | Mirror configured media onto a drive (`uv run ... syncplex-drive-sync`); `--check` prints the plan and exits 1 if the drive is behind its config |
+| `syncdrive [path] [--check]` | Drive sync TUI (`uv run ... syncplex-drive-sync`): browse for the drive, edit its config, sync with progress; `--check` prints the plan headless and exits 1 if the drive is behind its config |
 
 Data commands take `--json` for scripting.
 
 Both also run through `cmdr`, the fleet CLI/TUI from dotfiles: `commands/`
 holds the definitions it discovers (`cmdr syncplex` opens the remote,
-`cmdr syncdrive` opens the folder browser, then runs the sync;
-`--check` on either is the read-only probe). Both steps are marked
-`terminal`, so cmdr's TUI hands the screen over to them and resumes when
-they exit.
+`cmdr syncdrive` opens the drive-sync TUI; `--check` on either is the
+read-only probe). Both steps are marked `terminal`, so cmdr's TUI hands the
+screen over to them and resumes when they exit.
 
 ## How it's put together
 
@@ -65,7 +64,8 @@ backends/python/
 │   ├── cli.py             # all the flat commands above
 │   ├── media/tui/app.py   # the TUI
 │   └── web/               # web UI + its login/accounts
-├── drive_sync/        # drive sync: plex_api_wrapper.py + plex_scraper.py
+├── drive_sync/        # drive sync: drive_config, library (plex + fuzzy),
+│                      #   plan, transfer, screens (the TUI), cli
 └── tests/
 ```
 
@@ -120,26 +120,41 @@ quality_profile_pref:
   - quality_profile: optimized for mobile
 ```
 
-Run it with the drive's media path (it offers to create a starter config if
-none exists), or with no path to browse for one ncdu-style: enter opens a
+`syncdrive` (or `uv run --project backends/python syncplex-drive-sync`) is a
+TUI. With no path it opens an ncdu-style folder browser: enter opens a
 folder, backspace goes up, `/` jumps to the root (the drive list on Windows),
-space syncs the folder you are in, `e` opens its `config.yaml` in an editor
-(VS Code when `code` is on PATH, else your `$VISUAL`/`$EDITOR`, else nvim,
-else vim), and folders already holding a `config.yaml` are marked.
-`cmdr syncdrive` is the no-path form.
+and space picks the folder you are in; folders already holding a
+`config.yaml` are marked. With a path it goes straight to that drive.
+
+The drive screen is one row per configured title: how many files Plex has for
+it, how many are on the drive, and what a sync would get and remove, with a
+summary line of sizes against the drive's free space. Keys:
+
+- `enter` syncs (after a confirmation that names the counts and sizes)
+- `a` / `m` add a show / movie: type part of the title, pick the Plex match
+- `f` on a title that is **not on plex** picks the right one and rewrites the
+  config entry (the row already shows the closest guess)
+- `d` removes the title; its files go on the next sync
+- `+` / `-` change how many next episodes a show keeps
+- `e` opens the config in an editor: VS Code when `code` is on PATH, else
+  `$VISUAL`/`$EDITOR`, else nvim, else vim; `c` creates an empty config on a
+  folder that has none; `r` reloads
+
+The sync screen runs deletes first, then downloads, one row per file with
+live progress (rsync over SSH on macOS and Linux, a copy off the SMB share
+on Windows) and a log of what finished or failed; escape asks before stopping.
+A failed file does not stop the rest.
+
+For scripts and cmdr's check convention, `--check` prints the plan without
+the TUI and exits 1 when the drive differs from its config (or names a title
+that is not on Plex):
 
 ```bash
-syncdrive /Volumes/ExtSSD/Media          # shows the plan, asks before touching files
-syncdrive /Volumes/ExtSSD/Media --yes    # skip the confirmation (what the TUI uses)
-syncdrive /Volumes/ExtSSD/Media --check  # plan only; exit 1 if anything would change
-uv run --project backends/python syncplex-drive-sync          # no path: browse for it
+syncdrive /Volumes/ExtSSD/Media --check
 ```
 
-It compares what the drive has against what the config wants, then downloads
-the missing files from the Plex server (SMB copy on Windows, rsync-over-SSH
-on Linux and macOS — no mounted share needed) and deletes files under `TV/` and `Movies/`
-that are no longer wanted. In the TUI, `ctrl+s` opens the same tool: type
-the path, confirm, watch the output stream.
+`cmdr syncdrive` (from the dotfiles fleet CLI) is the no-path TUI form;
+`cmdr syncdrive --check` needs a path, so it prompts for one.
 
 ### Drive sync on Windows
 
@@ -150,13 +165,13 @@ through uv, **from the repo root**, with the drive's media path:
 ```powershell
 cd C:\GitHub\Sync_Plex
 uv run --project backends\python syncplex-drive-sync E:\Media
-uv run --project backends\python syncplex-drive-sync E:\Media --yes
+uv run --project backends\python syncplex-drive-sync E:\Media --check
 ```
 
 Windows notes:
 
-- **Run from the repo root.** The scraper finds `.env` by searching upward
-  from the current directory, not from the repo.
+- **Run from the repo root.** The Plex wrapper finds `.env` by searching
+  upward from the current directory, not from the repo.
 - **`.env` is a symlink** (to `../personal_credentials/personal.env`). Git on
   Windows checks symlinks out as plain text files unless the clone was made
   with `core.symlinks=true` (needs Developer Mode or admin). If the symlink
@@ -165,10 +180,6 @@ Windows notes:
 - **Files come over SMB** from `\\<plex-host>\Media` (host parsed from
   `PLEX_SERVER` in `.env`). Open that share once in Explorer first if it
   needs credentials.
-- **NumPy `DLL load failed` on import** means uv resolved a pre-release
-  Python (look for the `3.14.0aX` warning at the top of the output) —
-  binary wheels don't load on alpha builds. Run `uv python upgrade 3.14`,
-  delete `backends\python\.venv`, and rerun.
 
 ## Web UI
 

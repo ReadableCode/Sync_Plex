@@ -1,29 +1,23 @@
 """syncplex TUI — a thin Textual layer over the engine package.
 
-The media screen wires user actions to engine/media core functions; the
-drive-sync screen (ctrl+s) shells out to `syncplex-drive-sync` and streams
-its output. Styling follows the readablecode "terminal navy" design system
-(dotfiles design/STYLE.md).
+The media screen wires user actions to engine/media core functions; ctrl+s
+pushes the drive-sync screens (drive_sync.screens) onto this same app.
+Styling follows the readablecode "terminal navy" design system (dotfiles
+design/STYLE.md).
 """
 
-import asyncio
-
-from rich.text import Text
 from textual import on, work
 from textual.app import App, ComposeResult
 from textual.containers import Horizontal, Vertical, VerticalScroll
-from textual.screen import ModalScreen, Screen
 from textual.widgets import (
     Button,
     DataTable,
     Footer,
     Header,
     Input,
-    RichLog,
     Static,
 )
 
-from ...config import REPO_ROOT
 from ..aggregation import (
     add_to_instance,
     check_plex_availability,
@@ -41,7 +35,6 @@ from .theme import (
     HAIRLINE,
     MUTED,
     RED,
-    SURFACE,
     TERMINAL_NAVY,
 )
 
@@ -58,156 +51,6 @@ STATE_LABELS = {
     PresenceState.NOT_PRESENT: "not present",
     PresenceState.UNREACHABLE: "unreachable",
 }
-
-
-class ConfirmDriveSyncScreen(ModalScreen[bool]):
-    """Explicit confirmation before the destructive drive-sync run."""
-
-    BINDINGS = [("escape", "dismiss(False)", "cancel")]
-
-    CSS = f"""
-    ConfirmDriveSyncScreen {{
-        align: center middle;
-        background: {BG} 60%;
-    }}
-    #confirm-box {{
-        width: 70;
-        height: auto;
-        padding: 1 2;
-        background: {SURFACE};
-        border: solid {AMBER_BRIGHT};
-    }}
-    #confirm-box Button {{
-        margin-top: 1;
-        margin-right: 2;
-    }}
-    """
-
-    def __init__(self, path: str) -> None:
-        super().__init__()
-        self.path = path
-
-    def compose(self) -> ComposeResult:
-        with Vertical(id="confirm-box"):
-            yield Static(
-                f"[bold {AMBER_BRIGHT}]sync drive?[/]\n\n"
-                f"destination: [bold]{self.path}[/]\n\n"
-                f"mirrors the shows/movies from the drive's config.yaml onto it and "
-                f"[bold {RED}]deletes[/] anything under TV/ and Movies/ that is no "
-                f"longer wanted."
-            )
-            with Horizontal():
-                yield Button("sync drive", variant="error", id="confirm-run")
-                yield Button("cancel", id="confirm-cancel")
-
-    @on(Button.Pressed, "#confirm-run")
-    def confirm_run(self, event: Button.Pressed) -> None:
-        event.stop()
-        self.dismiss(True)
-
-    @on(Button.Pressed, "#confirm-cancel")
-    def confirm_cancel(self, event: Button.Pressed) -> None:
-        event.stop()
-        self.dismiss(False)
-
-
-class DriveSyncScreen(Screen):
-    """Drive sync: type the destination path, hit enter, watch it run."""
-
-    BINDINGS = [
-        ("escape", "back", "media"),
-    ]
-
-    CSS = f"""
-    DriveSyncScreen #drive-help {{
-        padding: 1 2 0 2;
-        color: {MUTED};
-    }}
-    DriveSyncScreen #drive-path {{
-        margin: 1 1 0 1;
-    }}
-    DriveSyncScreen #sync-log {{
-        height: 1fr;
-        margin-top: 1;
-        border-top: solid {HAIRLINE};
-        background: $surface;
-        padding: 0 1;
-    }}
-    """
-
-    def __init__(self) -> None:
-        super().__init__()
-        self._sync_running = False
-
-    def compose(self) -> ComposeResult:
-        yield Header()
-        yield Static(
-            "mirror the shows/movies from a drive's config.yaml onto it "
-            "(deletes what's no longer wanted). enter the destination path:",
-            id="drive-help",
-        )
-        yield Input(placeholder="/Volumes/MyDrive/Media", id="drive-path")
-        yield RichLog(id="sync-log", wrap=True)
-        yield Footer()
-
-    def on_mount(self) -> None:
-        self.sub_title = "drive sync"
-        self.query_one("#drive-path", Input).focus()
-
-    def action_back(self) -> None:
-        self.app.pop_screen()
-
-    @on(Input.Submitted, "#drive-path")
-    def path_submitted(self, event: Input.Submitted) -> None:
-        event.stop()
-        if self._sync_running:
-            self.notify("sync already running.", severity="warning")
-            return
-        path = event.value.strip()
-        if not path:
-            self.notify("enter a destination path.", severity="warning")
-            return
-
-        def _decided(confirmed: bool | None) -> None:
-            if confirmed:
-                self.run_drive_sync(path)
-
-        self.app.push_screen(ConfirmDriveSyncScreen(path), _decided)
-
-    @work(exclusive=True, group="sync-run")
-    async def run_drive_sync(self, path: str) -> None:
-        await self._stream_command(["syncplex-drive-sync", path, "--yes"])
-
-    async def _stream_command(self, project_args: list[str]) -> None:
-        """Run a command in the backends/python project, streaming output to the log."""
-        self._sync_running = True
-        log = self.query_one(RichLog)
-        cmd = [
-            "uv",
-            "run",
-            "--project",
-            str(REPO_ROOT / "backends" / "python"),
-            *project_args,
-        ]
-        log.write(Text("$ " + " ".join(cmd), style=f"bold {GREEN_BRIGHT}"))
-        try:
-            process = await asyncio.create_subprocess_exec(
-                *cmd,
-                cwd=str(REPO_ROOT),
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.STDOUT,
-            )
-            assert process.stdout is not None
-            while line := await process.stdout.readline():
-                log.write(line.decode(errors="replace").rstrip())
-            code = await process.wait()
-        except OSError as exc:  # e.g. uv missing from PATH
-            log.write(Text(f"✗ failed to launch: {exc}", style=RED))
-        else:
-            style, mark = (GREEN_BRIGHT, "✓") if code == 0 else (RED, "✗")
-            log.write(Text(f"{mark} exited with status {code}", style=style))
-        finally:
-            self._sync_running = False
 
 
 class MediaRemote(App):
@@ -497,7 +340,9 @@ class MediaRemote(App):
         self.query_one(Input).focus()
 
     def action_show_sync(self) -> None:
-        self.push_screen(DriveSyncScreen())
+        from drive_sync.screens import FolderScreen  # drive-sync deps stay out of the web image
+
+        self.push_screen(FolderScreen())
 
 
 def run_tui() -> None:

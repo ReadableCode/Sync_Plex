@@ -1,4 +1,4 @@
-from drive_sync.pick_dir import Editor, find_editor
+from drive_sync.editor import Editor, find_editor
 
 
 def _which_for(available: dict[str, str]):

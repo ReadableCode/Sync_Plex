@@ -45,14 +45,15 @@ function media_remote_check {
 
 # --- syncdrive (drive sync) ---
 
-# cmdr hands a step no arguments, so the scraper gets no path and opens its
-# folder browser (ncdu-style: enter opens, backspace up, space picks) on the
-# console - the .cmd marks the step terminal so cmdr's TUI hands the screen
-# over. The scraper then prints its own plan and asks before touching files,
-# so cmdr's --yes never reaches it.
+# cmdr hands a step no arguments, so the drive-sync TUI gets no path and
+# opens with its folder browser (ncdu-style: enter opens, backspace up, space
+# picks); the .cmd marks the step terminal so cmdr's TUI hands the screen
+# over. The TUI confirms before touching files, so cmdr's --yes never
+# reaches it. The check is the headless --check, which needs the folder, so
+# it asks for one first (default ~\Media, the syncdrive shell function's).
 function Test-DriveSyncTerminal {
     if ([Console]::IsInputRedirected -or [Console]::IsOutputRedirected) {
-        Write-Host "drive_sync needs a terminal for the folder browser (stdin or stdout was not one)"
+        Write-Host "drive_sync needs a terminal (stdin or stdout was not one)"
         return $false
     }
     return $true
@@ -64,6 +65,13 @@ function drive_sync {
 }
 
 function drive_sync_check {
-    if (-not (Test-DriveSyncTerminal)) { exit 1 }
-    exit (Invoke-Syncplex syncplex-drive-sync --check)
+    # Headless, so no terminal needed: the folder can be piped in.
+    $default = Join-Path $HOME 'Media'
+    $path = Read-Host "drive media folder to check [$default]"
+    if ([string]::IsNullOrWhiteSpace($path)) { $path = $default }
+    if (-not (Test-Path -PathType Container $path)) {
+        Write-Host "$path is not a directory (drive not mounted?)"
+        exit 1
+    }
+    exit (Invoke-Syncplex syncplex-drive-sync $path --check)
 }

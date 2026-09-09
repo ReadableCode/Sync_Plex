@@ -6,12 +6,6 @@ import os
 
 import requests
 from dotenv import find_dotenv, load_dotenv
-from readable_utils.display_tools import (  # noqa: F401
-    pprint_df,
-    pprint_dict,
-    pprint_ls,
-    print_logger,
-)
 
 # %%
 # Variables #
@@ -75,9 +69,7 @@ def get_dict_plex_movie_data(force_update=False):
 
     dict_sections = get_dict_plex_section_numbers()
     headers = {"X-Plex-Token": get_plex_token(), "Accept": "application/json"}
-    response = requests.get(
-        f"{get_plex_server()}/library/sections/{dict_sections['Movies']}/all", headers=headers
-    )
+    response = requests.get(f"{get_plex_server()}/library/sections/{dict_sections['Movies']}/all", headers=headers)
     if response.status_code != 200:
         return {}, {}
 
@@ -128,12 +120,8 @@ def get_seasons_data_for_show_id(show_id, force_update=False):
         headers=headers,
     )
     if all_seasons_response.status_code != 200:
-        raise Exception(
-            f"Error getting children for show_id {show_id}: {all_seasons_response.status_code}"
-        )
-    all_seasons_data = (
-        all_seasons_response.json().get("MediaContainer", {}).get("Metadata", [])
-    )
+        raise Exception(f"Error getting children for show_id {show_id}: {all_seasons_response.status_code}")
+    all_seasons_data = all_seasons_response.json().get("MediaContainer", {}).get("Metadata", [])
 
     dict_cache[key] = all_seasons_data.copy()
 
@@ -155,12 +143,8 @@ def get_episode_data_for_season_key(season_key, force_update=False):
         headers=headers,
     )
     if all_episodes_response.status_code != 200:
-        raise Exception(
-            f"Error getting children for season_key {season_key}: {all_episodes_response.status_code}"
-        )
-    all_episodes_data = (
-        all_episodes_response.json().get("MediaContainer").get("Metadata", [])
-    )
+        raise Exception(f"Error getting children for season_key {season_key}: {all_episodes_response.status_code}")
+    all_episodes_data = all_episodes_response.json().get("MediaContainer").get("Metadata", [])
 
     dict_cache[key] = all_episodes_data.copy()
 
