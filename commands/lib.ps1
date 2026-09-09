@@ -65,9 +65,11 @@ function drive_sync {
 }
 
 function drive_sync_check {
-    # Headless, so no terminal needed: the folder can be piped in.
+    # Headless, so no terminal needed: the folder is the first argument
+    # (`cmdr syncdrive --check E:\Media`) or is asked for.
     $default = Join-Path $HOME 'Media'
-    $path = Read-Host "drive media folder to check [$default]"
+    $path = $env:CMDR_ARG1
+    if ([string]::IsNullOrWhiteSpace($path)) { $path = Read-Host "drive media folder to check [$default]" }
     if ([string]::IsNullOrWhiteSpace($path)) { $path = $default }
     if (-not (Test-Path -PathType Container $path)) {
         Write-Host "$path is not a directory (drive not mounted?)"

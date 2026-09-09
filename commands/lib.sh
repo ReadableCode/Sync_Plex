@@ -64,10 +64,11 @@ drive_sync() {
 }
 
 drive_sync_check() {
-    # Headless, so no terminal needed: the folder can be piped in.
-    local default="$HOME/Media" path
-    if ! read -r -p "drive media folder to check [$default]: " path; then
-        echo "drive_sync_check needs the folder on stdin (nothing was there)" >&2
+    # Headless, so no terminal needed: the folder is the first argument
+    # (`cmdr syncdrive --check /Volumes/X/Media`) or is read from stdin.
+    local default="$HOME/Media" path="${CMDR_ARG1:-}"
+    if [ -z "$path" ] && ! read -r -p "drive media folder to check [$default]: " path; then
+        echo "drive_sync_check needs the folder as an argument or on stdin" >&2
         return 1
     fi
     path="${path:-$default}"

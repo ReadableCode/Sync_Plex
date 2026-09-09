@@ -154,7 +154,8 @@ syncdrive /Volumes/ExtSSD/Media --check
 ```
 
 `cmdr syncdrive` (from the dotfiles fleet CLI) is the no-path TUI form;
-`cmdr syncdrive --check` needs a path, so it prompts for one.
+`cmdr syncdrive --check /Volumes/ExtSSD/Media` is the headless check, and it
+asks for the folder when none is given.
 
 ### Drive sync on Windows
 
