@@ -45,36 +45,25 @@ function media_remote_check {
 
 # --- syncdrive (drive sync) ---
 
-# Ask for the drive's media root. cmdr hands a step no arguments, so the
-# path comes from the console; the default is the same ~\Media the
-# syncdrive shell function uses. A missing directory is a refusal, never a
-# fallback: an unmounted drive must not turn into a sync onto the internal
-# disk.
-function Get-DrivePath {
-    $default = Join-Path $HOME 'Media'
-    if ([Console]::IsInputRedirected) {
-        Write-Host "drive_sync needs a terminal to ask for the path (stdin was not one)"
-        return $null
+# cmdr hands a step no arguments, so the scraper gets no path and opens its
+# folder browser (ncdu-style: enter opens, backspace up, space picks) on the
+# console - the .cmd marks the step terminal so cmdr's TUI hands the screen
+# over. The scraper then prints its own plan and asks before touching files,
+# so cmdr's --yes never reaches it.
+function Test-DriveSyncTerminal {
+    if ([Console]::IsInputRedirected -or [Console]::IsOutputRedirected) {
+        Write-Host "drive_sync needs a terminal for the folder browser (stdin or stdout was not one)"
+        return $false
     }
-    $path = Read-Host "media path to sync [$default]"
-    if ([string]::IsNullOrWhiteSpace($path)) { $path = $default }
-    if (-not (Test-Path -PathType Container $path)) {
-        Write-Host "$path is not a directory (drive not mounted?)"
-        return $null
-    }
-    return $path
+    return $true
 }
 
 function drive_sync {
-    $path = Get-DrivePath
-    if (-not $path) { exit 1 }
-    # No --yes: the scraper's own plan-and-confirm is the confirmation that
-    # matters, and it only exists once the path is known.
-    exit (Invoke-Syncplex syncplex-drive-sync $path)
+    if (-not (Test-DriveSyncTerminal)) { exit 1 }
+    exit (Invoke-Syncplex syncplex-drive-sync)
 }
 
 function drive_sync_check {
-    $path = Get-DrivePath
-    if (-not $path) { exit 1 }
-    exit (Invoke-Syncplex syncplex-drive-sync $path --check)
+    if (-not (Test-DriveSyncTerminal)) { exit 1 }
+    exit (Invoke-Syncplex syncplex-drive-sync --check)
 }

@@ -13,7 +13,6 @@ from textual import on, work
 from textual.app import App, ComposeResult
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import ModalScreen, Screen
-from textual.theme import Theme
 from textual.widgets import (
     Button,
     DataTable,
@@ -34,46 +33,16 @@ from ..aggregation import (
 from ..config import load_media_config
 from ..health import format_bytes
 from ..models import AggregatedResult, MediaType, PresenceState
-
-# terminal-navy tokens (dotfiles design/tokens.css)
-BG = "#0d1420"
-SURFACE = "#121b2a"
-SURFACE_2 = "#182333"
-HAIRLINE = "#273141"  # --border rgba(148,163,184,.16) flattened onto --surface
-GRID = "#1c2739"
-INK = "#dbe4f0"
-INK_2 = "#9fb0c3"
-MUTED = "#7d8b9e"
-GREEN = "#2ea043"
-GREEN_BRIGHT = "#56d364"
-AMBER = "#b8860b"
-AMBER_BRIGHT = "#e3b341"
-RED = "#f87171"
-
-TERMINAL_NAVY = Theme(
-    name="terminal-navy",
-    primary=GREEN,
-    secondary=AMBER,
-    accent=GREEN_BRIGHT,
-    warning=AMBER_BRIGHT,
-    error=RED,
-    success=GREEN,
-    foreground=INK,
-    background=BG,
-    surface=SURFACE,
-    panel=SURFACE_2,
-    dark=True,
-    variables={
-        "border": GREEN,
-        "border-blurred": HAIRLINE,
-        "footer-key-foreground": GREEN_BRIGHT,
-        "block-cursor-foreground": INK,
-        "block-cursor-background": GRID,
-        "block-cursor-blurred-foreground": INK_2,
-        "block-cursor-blurred-background": SURFACE_2,
-        "block-hover-background": SURFACE_2,
-        "input-selection-background": f"{GREEN} 35%",
-    },
+from .theme import (
+    AMBER_BRIGHT,
+    BG,
+    GREEN,
+    GREEN_BRIGHT,
+    HAIRLINE,
+    MUTED,
+    RED,
+    SURFACE,
+    TERMINAL_NAVY,
 )
 
 STATE_GLYPHS = {

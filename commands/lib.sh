@@ -45,36 +45,24 @@ media_remote_check() {
 
 # --- syncdrive (drive sync) ---
 
-# Ask for the drive's media root. cmdr hands a step no arguments, so the
-# path comes from stdin; the default is the same ~/Media the syncdrive shell
-# function uses. `read -p` prompts on stderr, so stdout carries only the
-# answer. A missing directory is a refusal, never a fallback: an unmounted
-# drive must not turn into a sync onto the internal disk.
-_drive_path() {
-    local default="$HOME/Media" path
-    if ! read -r -p "media path to sync [$default]: " path; then
-        echo "drive_sync needs a terminal to ask for the path (stdin was not one)" >&2
+# cmdr hands a step no arguments, so the scraper gets no path and opens its
+# folder browser (ncdu-style: enter opens, backspace up, space picks) on the
+# terminal - the .cmd marks the step terminal so cmdr's TUI hands the screen
+# over. The scraper then prints its own plan and asks before touching files,
+# so cmdr's --yes never reaches it.
+_drive_sync_needs_terminal() {
+    if [ ! -t 0 ] || [ ! -t 1 ]; then
+        echo "drive_sync needs a terminal for the folder browser (stdin or stdout was not one)" >&2
         return 1
     fi
-    path="${path:-$default}"
-    if [ ! -d "$path" ]; then
-        echo "$path is not a directory (drive not mounted?)" >&2
-        return 1
-    fi
-    printf '%s\n' "$path"
 }
 
 drive_sync() {
-    local path
-    path=$(_drive_path) || return 1
-    # No --yes: the scraper's own plan-and-confirm is the confirmation that
-    # matters (what it will download and delete), and it only exists once
-    # the path is known.
-    _syncplex syncplex-drive-sync "$path"
+    _drive_sync_needs_terminal || return 1
+    _syncplex syncplex-drive-sync
 }
 
 drive_sync_check() {
-    local path
-    path=$(_drive_path) || return 1
-    _syncplex syncplex-drive-sync "$path" --check
+    _drive_sync_needs_terminal || return 1
+    _syncplex syncplex-drive-sync --check
 }

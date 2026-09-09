@@ -48,7 +48,7 @@ Data commands take `--json` for scripting.
 
 Both also run through `cmdr`, the fleet CLI/TUI from dotfiles: `commands/`
 holds the definitions it discovers (`cmdr syncplex` opens the remote,
-`cmdr syncdrive` asks for the drive's media path, then runs the sync;
+`cmdr syncdrive` opens the folder browser, then runs the sync;
 `--check` on either is the read-only probe). Both steps are marked
 `terminal`, so cmdr's TUI hands the screen over to them and resumes when
 they exit.
@@ -121,12 +121,16 @@ quality_profile_pref:
 ```
 
 Run it with the drive's media path (it offers to create a starter config if
-none exists):
+none exists), or with no path to browse for one ncdu-style: enter opens a
+folder, backspace goes up, `/` jumps to the root (the drive list on Windows),
+space syncs the folder you are in, and folders already holding a
+`config.yaml` are marked. `cmdr syncdrive` is the no-path form.
 
 ```bash
 syncdrive /Volumes/ExtSSD/Media          # shows the plan, asks before touching files
 syncdrive /Volumes/ExtSSD/Media --yes    # skip the confirmation (what the TUI uses)
 syncdrive /Volumes/ExtSSD/Media --check  # plan only; exit 1 if anything would change
+uv run --project backends/python syncplex-drive-sync          # no path: browse for it
 ```
 
 It compares what the drive has against what the config wants, then downloads

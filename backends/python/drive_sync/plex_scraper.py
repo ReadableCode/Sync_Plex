@@ -21,6 +21,7 @@ from readable_utils.display_tools import (  # noqa: F401
     print_logger,
 )
 
+from drive_sync.pick_dir import default_start, pick_directory
 from drive_sync.plex_api_wrapper import (
     get_dict_plex_movie_data,
     get_dict_plex_show_data,
@@ -595,7 +596,7 @@ def apply_sync(df_actions, destination_root_path):
 
 def main():
     start_time = time.time()
-    destination_root_path = "/Users/jason/Media/"
+    destination_root_path = str(default_start())
     assume_yes = False
     check_only = False
     if "ipykernel" in sys.argv[0]:
@@ -606,8 +607,8 @@ def main():
             "path",
             type=str,
             nargs="?",
-            default=destination_root_path,
-            help="Folder path to pull config and sync",
+            default=None,
+            help="Folder to pull config from and sync; omit it to pick one in a folder browser",
         )
         parser.add_argument(
             "-y",
@@ -625,6 +626,14 @@ def main():
 
         if args.path:
             destination_root_path = os.path.abspath(args.path)
+        else:
+            # No path on the command line (cmdr's syncdrive never has one):
+            # browse for it, ncdu-style. Needs the terminal.
+            chosen = pick_directory()
+            if chosen is None:
+                print_logger("no folder chosen, nothing to do", level="warning")
+                sys.exit(1)
+            destination_root_path = chosen
         assume_yes = args.yes
         check_only = args.check
 
