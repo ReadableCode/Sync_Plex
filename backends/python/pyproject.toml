@@ -41,15 +41,20 @@ dev = [
     "pytest>=9.0.2",
     "ruff>=0.11",
 ]
-# drive-sync deps live in a group (not project.dependencies) so the Docker
-# image stays lean — the web container never imports drive_sync. Local
-# `uv sync` installs them via default-groups; the Dockerfile syncs with
+# Everything the web image never imports lives in this group, not in
+# project.dependencies, so the Docker image stays lean: the drive sync and
+# the TUIs (readable-utils carries the shared terminal-navy theme). Local
+# `uv sync` installs it via default-groups; the Dockerfile syncs with
 # --no-default-groups.
 drive-sync = [
     "pyyaml>=6.0.2",
+    "readable-utils",
     "requests>=2.32.3",
 ]
 
 [tool.uv]
 default-groups = ["dev", "drive-sync"]
+
+[tool.uv.sources]
+readable-utils = { git = "https://github.com/ReadableCode/readable_utils.git", tag = "v0.3.3" }
 
