@@ -54,6 +54,12 @@ def test_load_media_config_skips_missing_keys(monkeypatch):
     assert any("TEST_SONARR_KEY" in w for w in config.warnings)
 
 
+def test_load_media_config_warns_when_nothing_is_configured():
+    config = load_media_config([])
+    assert config.sonarr == config.radarr == config.plex == []
+    assert any("every search will come back empty" in w for w in config.warnings)
+
+
 def _tv_config() -> MediaConfig:
     return MediaConfig(
         sonarr=[

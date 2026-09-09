@@ -23,10 +23,25 @@ INVENTORY_SEARCH_PATH = [
 
 
 def get_inventory_path() -> Path | None:
+    """Resolve the inventory file, or None when nothing declared one.
+
+    SYNCPLEX_HOSTS is an explicit declaration, so a path that is not a readable
+    file is a deployment error and raises rather than degrading to None: a
+    silent None leaves every UI answering "no results" to every search, which
+    reads as an empty library instead of a broken deployment.
+    """
     env_path = os.environ.get("SYNCPLEX_HOSTS")
     if env_path:
         p = Path(env_path).expanduser()
-        return p if p.is_file() else None
+        if p.is_dir():
+            raise RuntimeError(
+                f"SYNCPLEX_HOSTS={p} is a directory, not a file. A docker bind mount whose "
+                f"source path does not exist creates an empty directory exactly like this — "
+                f"check the volume line in deploy/compose.elitedesk.yaml."
+            )
+        if not p.is_file():
+            raise RuntimeError(f"SYNCPLEX_HOSTS={p} does not exist")
+        return p
     for path in INVENTORY_SEARCH_PATH:
         if path.is_file():
             return path

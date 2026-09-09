@@ -2,6 +2,9 @@ import json
 from pathlib import Path
 from textwrap import dedent
 
+import pytest
+
+from engine.config import get_inventory_path
 from engine.inventory import find_machine, machines_to_json, parse_ansible_ini, parse_inventory
 
 
@@ -125,3 +128,29 @@ def test_ansible_ini_roundtrip(tmp_path):
     out.write_text(machines_to_json(machines))
     reparsed = parse_inventory(out)
     assert {m.name for m in reparsed} == {m.name for m in machines}
+
+
+def test_env_inventory_path_accepts_a_file(tmp_path, monkeypatch):
+    inv = _write_hosts_json(tmp_path)
+    monkeypatch.setenv("SYNCPLEX_HOSTS", str(inv))
+    assert get_inventory_path() == inv
+
+
+def test_env_inventory_path_rejects_a_directory(tmp_path, monkeypatch):
+    """Docker creates an empty directory when a bind mount's source is missing."""
+    stray = tmp_path / "hosts.json"
+    stray.mkdir()
+    monkeypatch.setenv("SYNCPLEX_HOSTS", str(stray))
+    with pytest.raises(RuntimeError, match="is a directory"):
+        get_inventory_path()
+
+
+def test_env_inventory_path_rejects_a_missing_file(tmp_path, monkeypatch):
+    monkeypatch.setenv("SYNCPLEX_HOSTS", str(tmp_path / "nope.json"))
+    with pytest.raises(RuntimeError, match="does not exist"):
+        get_inventory_path()
+
+
+def test_unset_env_falls_back_to_the_search_path(monkeypatch):
+    monkeypatch.delenv("SYNCPLEX_HOSTS", raising=False)
+    assert get_inventory_path() is not None

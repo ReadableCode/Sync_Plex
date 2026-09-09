@@ -8,7 +8,7 @@ Adding another Sonarr/Radarr/Plex instance is a config-only change.
 import os
 from dataclasses import dataclass, field
 
-from ..config import load_env
+from ..config import get_inventory_path, load_env
 from ..inventory import parse_inventory
 from ..models import Machine
 
@@ -73,5 +73,13 @@ def load_media_config(machines: list[Machine] | None = None) -> MediaConfig:
                     root_folder=svc.root_folder,
                 )
                 (config.sonarr if svc.type == "sonarr" else config.radarr).append(instance)
+
+    if not (config.sonarr or config.radarr or config.plex):
+        # Every search returns [] from here, which the UIs render as "no results" —
+        # indistinguishable from an empty library. Say what actually happened.
+        where = get_inventory_path() or "no inventory file found"
+        config.warnings.append(
+            f"no sonarr/radarr/plex services configured ({where}) — every search will come back empty"
+        )
 
     return config
