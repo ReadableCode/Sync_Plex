@@ -38,13 +38,19 @@ All commands are flat — no nested groups except `users`.
 | `syncplex search "title" [-t tv\|movie] [--plex]` | One merged status view across every instance |
 | `syncplex seasons "title" [--episodes]` | Per-season / per-episode breakdown |
 | `syncplex add "title" --to <instance>` | Add the top result to that instance |
-| `syncplex instances` | List configured instances (from hosts.json + .env) |
+| `syncplex instances` | List configured instances (from personal_hosts.json + .env) |
 | `syncplex tui` | Textual TUI: search/add, plus drive sync on `ctrl+s` |
 | `syncplex web [--host IP] [--port 8788]` | The web UI (NiceGUI) |
 | `syncplex users <add\|list\|passwd\|role\|disable\|enable\|remove>` | Web UI accounts |
-| `syncdrive <path> [--yes]` | Mirror configured media onto a drive (`uv run ... syncplex-drive-sync`) |
+| `syncdrive <path> [--yes\|--check]` | Mirror configured media onto a drive (`uv run ... syncplex-drive-sync`); `--check` prints the plan and exits 1 if the drive is behind its config |
 
 Data commands take `--json` for scripting.
+
+Both also run through `cmdr`, the fleet CLI/TUI from dotfiles: `commands/`
+holds the definitions it discovers (`cmdr syncplex` opens the remote,
+`cmdr syncdrive` asks for the drive's media path, then runs the sync;
+`--check` on either is the read-only probe). Both need a terminal, so they
+run from a shell, not from inside cmdr's own TUI.
 
 ## How it's put together
 
@@ -62,15 +68,16 @@ backends/python/
 └── tests/
 ```
 
-Repo root: `cli/` shell wrappers, `deploy/compose.elitedesk.yaml` (web
-deployment), `.env` → symlink into personal_credentials, `pyrightconfig.json`
-(points editors at `backends/python/.venv`).
+Repo root: `cli/` shell wrappers, `commands/` (cmdr definitions and their
+step functions), `deploy/compose.elitedesk.yaml` (web deployment), `.env` →
+symlink into personal_credentials, `pyrightconfig.json` (points editors at
+`backends/python/.venv`).
 
 ## Configuration
 
 Two files, both living in the sibling `personal_credentials` repo:
 
-- **`hosts.json`** — the inventory. Each host lists the services it offers;
+- **`personal_hosts.json`** — the inventory. Each host lists the services it offers;
   adding another Sonarr/Radarr/Plex is config-only:
 
   ```json
@@ -90,7 +97,7 @@ Two files, both living in the sibling `personal_credentials` repo:
 
   Optional service fields: `scheme`, `base_url`, `quality_profile`,
   `root_folder`. Search order for the file: `$SYNCPLEX_HOSTS` →
-  `../personal_credentials/hosts.json` → repo-root `hosts.json` →
+  `../personal_credentials/personal_hosts.json` → repo-root `hosts.json` →
   `~/.config/syncplex/hosts.json` → `~/syncplex_hosts.json`.
 
 - **`.env`** — the secrets. The inventory never holds keys; each service
@@ -116,8 +123,9 @@ Run it with the drive's media path (it offers to create a starter config if
 none exists):
 
 ```bash
-syncdrive /Volumes/ExtSSD/Media        # shows the plan, asks before touching files
-syncdrive /Volumes/ExtSSD/Media --yes  # skip the confirmation (what the TUI uses)
+syncdrive /Volumes/ExtSSD/Media          # shows the plan, asks before touching files
+syncdrive /Volumes/ExtSSD/Media --yes    # skip the confirmation (what the TUI uses)
+syncdrive /Volumes/ExtSSD/Media --check  # plan only; exit 1 if anything would change
 ```
 
 It compares what the drive has against what the config wants, then downloads
@@ -128,9 +136,9 @@ the path, confirm, watch the output stream.
 
 ### Drive sync on Windows
 
-There is no `syncdrive` command on Windows — the `cli/` wrappers and the
-dotfiles functions are bash/zsh only. Run the entry point through uv,
-**from the repo root**, with the drive's media path:
+The `cli/` wrappers are bash-only; on Windows use the `syncdrive` PowerShell
+function from the dotfiles shard, `cmdr syncdrive`, or run the entry point
+through uv, **from the repo root**, with the drive's media path:
 
 ```powershell
 cd C:\GitHub\Sync_Plex

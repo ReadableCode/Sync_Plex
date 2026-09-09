@@ -597,6 +597,7 @@ def main():
     start_time = time.time()
     destination_root_path = "/Users/jason/Media/"
     assume_yes = False
+    check_only = False
     if "ipykernel" in sys.argv[0]:
         print("Running in IPython kernel")
     else:
@@ -614,12 +615,24 @@ def main():
             action="store_true",
             help="Skip the confirmation prompt and start syncing immediately",
         )
+        parser.add_argument(
+            "--check",
+            action="store_true",
+            help="Show the plan and change nothing; exit 1 when the drive differs from its config (wins over --yes)",
+        )
 
         args = parser.parse_args()
 
         if args.path:
             destination_root_path = os.path.abspath(args.path)
         assume_yes = args.yes
+        check_only = args.check
+
+    if check_only and not os.path.exists(os.path.join(destination_root_path, "config.yaml")):
+        # A check is read-only: report the missing config instead of
+        # offering to create one.
+        print_logger(f"--check: no config.yaml at {destination_root_path}", level="error")
+        sys.exit(1)
 
     print_logger(f"Path to sync: {destination_root_path}")
 
@@ -638,8 +651,13 @@ def main():
     else:
         df_existing_files = pd.DataFrame(ls_dicts_existing_files)
 
-    # convert both to dataframes and merge on dest path
-    df_desired_files = pd.DataFrame(ls_dicts_desired_files)
+    # convert both to dataframes and merge on dest path; an empty config
+    # (nothing wanted, so everything on the drive should go) still needs the
+    # merge columns, same as the no-existing-files case above
+    if not ls_dicts_desired_files:
+        df_desired_files = pd.DataFrame(columns=["dest_path", "server_file_size_gb"])
+    else:
+        df_desired_files = pd.DataFrame(ls_dicts_desired_files)
 
     df_merged = pd.merge(
         df_desired_files,
@@ -666,8 +684,10 @@ def main():
     print_logger("Merged DataFrame as list of dictionaries:")
     pprint_dict(dict_df)
 
-    df_merged = df_merged[
-        [
+    # reindex, not a column select: a movies-only config has no episode
+    # columns and an empty config has neither, and both are valid drives
+    df_merged = df_merged.reindex(
+        columns=[
             "media_type",
             "title",
             "season",
@@ -682,7 +702,7 @@ def main():
             "view_count",
             "quality_this_part",
         ]
-    ]
+    )
 
     for column_name in ["season", "episode_number", "episode_title"]:
         df_merged[column_name] = df_merged[column_name].fillna("")
@@ -693,10 +713,9 @@ def main():
             .str.replace(".0", "")
         )
 
-    df_actions = df_merged.copy()
-    df_actions.loc[df_actions["sync_state"] == "synced", "status"] = "synced"
-    # filter to non synced
-    df_actions = df_actions[df_actions["status"] != "synced"]
+    # filter to non synced (a plain mask: the old loc-assign of a status
+    # column raised on an empty frame, i.e. an empty drive with an empty config)
+    df_actions = df_merged[df_merged["sync_state"] != "synced"].copy()
 
     df_actions["status"] = "pending"
     print_status(df_actions, "User Confirmation")
@@ -740,6 +759,13 @@ def main():
                 level="error",
             )
             sys.exit(1)
+
+    if check_only:
+        if df_actions.empty:
+            print_logger("--check: drive matches its config, nothing to do")
+            sys.exit(0)
+        print_logger(f"--check: {len(df_actions)} file(s) would change (see the plan above)", level="warning")
+        sys.exit(1)
 
     if assume_yes:
         print_logger("--yes given, starting sync process...")

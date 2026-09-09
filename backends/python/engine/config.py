@@ -11,10 +11,11 @@ except IndexError:
     REPO_ROOT = Path(__file__).resolve().parents[1]
 
 # Inventory search path — first match wins. SYNCPLEX_HOSTS env var overrides.
-# Canonical copy lives in the personal_credentials repo (assumed checked out
-# beside this one), same place the .env symlink points.
+# Canonical copy is the personal context's inventory in the personal_credentials
+# repo (assumed checked out beside this one, same place the .env symlink
+# points); every context names its inventory <context>_hosts.json.
 INVENTORY_SEARCH_PATH = [
-    REPO_ROOT.parent / "personal_credentials" / "hosts.json",
+    REPO_ROOT.parent / "personal_credentials" / "personal_hosts.json",
     REPO_ROOT / "hosts.json",
     Path.home() / ".config" / "syncplex" / "hosts.json",
     Path.home() / "syncplex_hosts.json",
@@ -22,10 +23,7 @@ INVENTORY_SEARCH_PATH = [
 
 
 def get_inventory_path() -> Path | None:
-    # SYNCPLEX_HOSTS wins; HERDSTONE_HOSTS is honored as a fallback because
-    # deployments share the same hosts.json convention with herdstone during
-    # the migration of the media remote out of that repo.
-    env_path = os.environ.get("SYNCPLEX_HOSTS") or os.environ.get("HERDSTONE_HOSTS")
+    env_path = os.environ.get("SYNCPLEX_HOSTS")
     if env_path:
         p = Path(env_path).expanduser()
         return p if p.is_file() else None
