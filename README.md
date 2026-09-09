@@ -260,6 +260,7 @@ cd backends/python
 uv sync              # one venv for everything, readable-utils included
 uv run pytest
 uv run ruff check .
+uv run mypy           # `type: ignore` comments are only real if something checks them
 ```
 
 Editors resolve imports via the repo-root `pyrightconfig.json` — no

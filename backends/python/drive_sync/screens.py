@@ -17,6 +17,7 @@ from textual import on, work
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Vertical
+from textual.coordinate import Coordinate
 from textual.screen import ModalScreen, Screen
 from textual.widgets import DataTable, Footer, Header, Input, OptionList, ProgressBar, RichLog, Static
 from textual.widgets.option_list import Option
@@ -461,7 +462,7 @@ class DriveScreen(Screen[None]):
         table = self.query_one("#titles", DataTable)
         if table.cursor_row is None or table.row_count == 0:
             return None
-        key = table.coordinate_to_cell_key((table.cursor_row, 0)).row_key.value
+        key = table.coordinate_to_cell_key(Coordinate(table.cursor_row, 0)).row_key.value
         for title in self.plan.titles:
             if f"{title.kind}|{title.name}" == key:
                 return title

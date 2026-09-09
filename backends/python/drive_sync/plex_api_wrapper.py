@@ -3,6 +3,7 @@
 
 
 import os
+from typing import Any
 
 import requests
 from dotenv import find_dotenv, load_dotenv
@@ -24,7 +25,7 @@ def get_plex_token():
     return os.environ["PLEX_TOKEN"]
 
 
-dict_cache = {}
+dict_cache: dict[str, Any] = {}
 
 # %%
 # Plex API #

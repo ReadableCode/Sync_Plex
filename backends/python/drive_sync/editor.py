@@ -6,6 +6,7 @@ from __future__ import annotations
 import os
 import shlex
 import shutil
+from collections.abc import Mapping
 from dataclasses import dataclass
 
 
@@ -15,15 +16,15 @@ class Editor:
     gui: bool  # a window: launch and return; a terminal editor suspends the picker until it exits
 
 
-def find_editor(environ: dict[str, str] | None = None, which=shutil.which) -> Editor | None:
+def find_editor(environ: Mapping[str, str] | None = None, which=shutil.which) -> Editor | None:
     """VS Code when its `code` command is on PATH, else the user's own $VISUAL /
     $EDITOR (split like a shell would, so "code --wait" or "emacs -nw" work),
     else nvim, else vim. None when nothing is there."""
-    environ = os.environ if environ is None else environ
+    env: Mapping[str, str] = os.environ if environ is None else environ
     if which("code"):
         return Editor([which("code")], gui=True)
     for var in ("VISUAL", "EDITOR"):
-        words = shlex.split(environ.get(var, ""))
+        words = shlex.split(env.get(var, ""))
         if words and which(words[0]):
             return Editor([which(words[0]), *words[1:]], gui=False)
     for name in ("nvim", "vim"):

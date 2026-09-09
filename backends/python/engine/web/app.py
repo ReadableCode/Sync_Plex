@@ -322,9 +322,12 @@ def run_web(host: str = "127.0.0.1", port: int = 8788) -> None:  # noqa: C901 â€
 
         async def try_login() -> None:
             # io_bound keeps the auth-service round trip off the event loop
-            token, error = await run.io_bound(
+            result = await run.io_bound(
                 attempt_login, username_box.value or "", password_box.value or "", _client_ip(request)
             )
+            if result is None:  # the call was cancelled, or the app is shutting down
+                return
+            token, error = result
             if token is None:
                 ui.notify(error, color="negative", position="top")
                 return

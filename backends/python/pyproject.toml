@@ -36,10 +36,25 @@ ignore = ["E203"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 
+# `type: ignore` comments are only worth writing if something checks them —
+# warn_unused_ignores is what catches one that a reformat detached from the
+# line it was suppressing.
+[tool.mypy]
+python_version = "3.14"
+files = ["engine", "drive_sync", "tests"]
+warn_unused_ignores = true
+warn_redundant_casts = true
+
+[[tool.mypy.overrides]]
+module = "readable_utils.*"  # third-party, ships no py.typed marker
+ignore_missing_imports = true
+
 [dependency-groups]
 dev = [
+    "mypy>=1.18",
     "pytest>=9.0.2",
     "ruff>=0.11",
+    "types-pyyaml>=6.0",
 ]
 # Everything the web image never imports lives in this group, not in
 # project.dependencies, so the Docker image stays lean: the drive sync and

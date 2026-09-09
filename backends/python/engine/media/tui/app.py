@@ -20,7 +20,9 @@ from textual import on, work
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
+from textual.coordinate import Coordinate
 from textual.screen import ModalScreen, Screen
+from textual.timer import Timer
 from textual.widgets import DataTable, Footer, Header, Input, OptionList, Static
 from textual.widgets.option_list import Option
 
@@ -376,7 +378,7 @@ class MediaScreen(Screen[None]):
         super().__init__()
         self.media_type = MediaType.TV
         self.results: dict[str, AggregatedResult] = {}
-        self._search_timer = None
+        self._search_timer: Timer | None = None
 
     @property
     def remote(self) -> MediaRemote:
@@ -441,7 +443,7 @@ class MediaScreen(Screen[None]):
         table = self.query_one("#results", DataTable)
         table.clear()
         for key, aggregated in self.results.items():
-            row = [aggregated.result.title, str(aggregated.result.year or "")]
+            row: list[str | Text] = [aggregated.result.title, str(aggregated.result.year or "")]
             for instance in self.remote.config.arr_instances(self.media_type.value):
                 status = aggregated.status_for(instance.name)
                 row.append(Text.from_markup(STATE_GLYPHS[status.state]) if status else "?")
@@ -457,8 +459,8 @@ class MediaScreen(Screen[None]):
         table = self.query_one("#results", DataTable)
         if table.cursor_row is None or not self.results or table.row_count == 0:
             return None
-        key = table.coordinate_to_cell_key((table.cursor_row, 0)).row_key.value
-        return self.results.get(key)
+        key = table.coordinate_to_cell_key(Coordinate(table.cursor_row, 0)).row_key.value
+        return self.results.get(key) if key is not None else None
 
     @on(DataTable.RowHighlighted, "#results")
     def show_detail(self, event: DataTable.RowHighlighted) -> None:
@@ -756,8 +758,8 @@ class RequestsScreen(Screen[None]):
         table = self.query_one("#pending", DataTable)
         if table.cursor_row is None or table.row_count == 0:
             return None
-        key = table.coordinate_to_cell_key((table.cursor_row, 0)).row_key.value
-        return self.pending.get(key)
+        key = table.coordinate_to_cell_key(Coordinate(table.cursor_row, 0)).row_key.value
+        return self.pending.get(key) if key is not None else None
 
     @on(DataTable.RowHighlighted, "#pending")
     def highlighted(self, event: DataTable.RowHighlighted) -> None:
@@ -1045,7 +1047,11 @@ class MediaRemote(App[None]):
             return
         if not self.require_session("to see the request queue"):
             return
-        self.push_screen(RequestsScreen(), lambda _result: self.refresh_queue_counts_worker())
+
+        def _refresh_counts(_result: None) -> None:
+            self.refresh_queue_counts_worker()
+
+        self.push_screen(RequestsScreen(), _refresh_counts)
 
     def action_show_sync(self) -> None:
         from drive_sync.screens import FolderScreen  # drive-sync deps stay out of the web image
