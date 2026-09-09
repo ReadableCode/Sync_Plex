@@ -38,7 +38,7 @@ services:
       - postgrest
       - auth
     volumes:
-      - ../personal_credentials/hosts.json:/config/hosts.json:ro
+      - ../personal_credentials/personal_hosts.json:/config/hosts.json:ro
       - /home/jason/docker_app_data/syncplex:/data
     ports:
       - "8788:8788"
