@@ -123,8 +123,10 @@ quality_profile_pref:
 Run it with the drive's media path (it offers to create a starter config if
 none exists), or with no path to browse for one ncdu-style: enter opens a
 folder, backspace goes up, `/` jumps to the root (the drive list on Windows),
-space syncs the folder you are in, and folders already holding a
-`config.yaml` are marked. `cmdr syncdrive` is the no-path form.
+space syncs the folder you are in, `e` opens its `config.yaml` in an editor
+(VS Code when `code` is on PATH, else your `$VISUAL`/`$EDITOR`, else nvim,
+else vim), and folders already holding a `config.yaml` are marked.
+`cmdr syncdrive` is the no-path form.
 
 ```bash
 syncdrive /Volumes/ExtSSD/Media          # shows the plan, asks before touching files

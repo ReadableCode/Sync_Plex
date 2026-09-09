@@ -10,7 +10,11 @@ config.yaml are marked, since those are the drives this tool has synced.
 from __future__ import annotations
 
 import os
+import shlex
+import shutil
+import subprocess
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 
 from textual.app import App, ComposeResult
@@ -21,6 +25,29 @@ from textual.widgets.option_list import Option
 from engine.media.tui.theme import AMBER_BRIGHT, GREEN_BRIGHT, MUTED, TERMINAL_NAVY
 
 DRIVES = None  # the "current folder" on Windows when listing drive letters
+
+
+@dataclass(frozen=True)
+class Editor:
+    command: list[str]
+    gui: bool  # a window: launch and return; a terminal editor suspends the picker until it exits
+
+
+def find_editor(environ: dict[str, str] | None = None, which=shutil.which) -> Editor | None:
+    """VS Code when its `code` command is on PATH, else the user's own $VISUAL /
+    $EDITOR (split like a shell would, so "code --wait" or "emacs -nw" work),
+    else nvim, else vim. None when nothing is there."""
+    environ = os.environ if environ is None else environ
+    if which("code"):
+        return Editor([which("code")], gui=True)
+    for var in ("VISUAL", "EDITOR"):
+        words = shlex.split(environ.get(var, ""))
+        if words and which(words[0]):
+            return Editor([which(words[0]), *words[1:]], gui=False)
+    for name in ("nvim", "vim"):
+        if which(name):
+            return Editor([which(name)], gui=False)
+    return None
 
 
 def default_start() -> Path:
@@ -59,6 +86,7 @@ class DirectoryPicker(App[str | None]):
         Binding("right,l", "open", "open"),
         Binding("backspace,left,h", "up", "up"),
         Binding("space,s", "choose", "sync this folder"),
+        Binding("e", "edit", "edit config"),
         Binding("slash,r", "roots", "roots"),
         Binding("j", "cursor_down", show=False),
         Binding("k", "cursor_up", show=False),
@@ -78,8 +106,8 @@ class DirectoryPicker(App[str | None]):
         yield Header()
         yield Static(id="where")
         yield Static(
-            "enter opens the folder, space syncs the one you are in; "
-            "folders already holding a config.yaml are marked",
+            "enter opens the folder, space syncs the one you are in, e edits its config.yaml; "
+            "folders already holding one are marked",
             id="hint",
         )
         yield OptionList(id="folders")
@@ -166,6 +194,32 @@ class DirectoryPicker(App[str | None]):
             self.notify("open a drive first", severity="warning")
             return
         self.exit(str(self.folder))
+
+    def action_edit(self) -> None:
+        """Open this folder's config.yaml in an editor (see find_editor for the order)."""
+        if self.folder is DRIVES:
+            self.notify("open a drive first", severity="warning")
+            return
+        config = self.folder / "config.yaml"
+        if not config.is_file():
+            self.notify(
+                "no config.yaml here yet: sync this folder and the tool offers to create a starter one",
+                severity="warning",
+            )
+            return
+        editor = find_editor()
+        if editor is None:
+            self.notify(
+                "no editor found: install VS Code (code on PATH), set $EDITOR, or install nvim/vim", severity="error"
+            )
+            return
+        if editor.gui:
+            subprocess.Popen([*editor.command, str(config)])
+            self.notify(f"opened {config.name} in {Path(editor.command[0]).name}; save it there, then sync")
+            return
+        with self.suspend():
+            subprocess.run([*editor.command, str(config)])
+        self.show(self.folder)
 
     def action_cancel(self) -> None:
         self.exit(None)
