@@ -132,9 +132,7 @@ def test_estimate_add_bytes_tv_fallbacks():
 
 
 def test_estimate_add_bytes_movie():
-    aggregated = AggregatedResult(
-        result=MediaSearchResult(media_type=MediaType.MOVIE, title="Dune: Part Two")
-    )
+    aggregated = AggregatedResult(result=MediaSearchResult(media_type=MediaType.MOVIE, title="Dune: Part Two"))
     health = ServerHealth(name="radarr-a", kind="radarr", avg_movie_bytes=7_000_000_000)
     assert estimate_add_bytes(aggregated, health) == 7_000_000_000
     assert estimate_add_bytes(aggregated, None) == DEFAULT_MOVIE_BYTES

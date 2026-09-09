@@ -148,9 +148,7 @@ def seasons(
 
     if output_json:
         data = target.model_dump(mode="json")
-        data["episodes"] = {
-            name: [e.model_dump(mode="json") for e in eps] for name, eps in eps_by_instance.items()
-        }
+        data["episodes"] = {name: [e.model_dump(mode="json") for e in eps] for name, eps in eps_by_instance.items()}
         typer.echo(json.dumps(data, indent=2))
         return
 

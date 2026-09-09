@@ -134,9 +134,7 @@ def parse_ansible_ini(path: Path) -> list[Machine]:
     return machines
 
 
-def _machine_from_host_line(
-    inv_hostname: str, kv_parts: list[str], current_group: str
-) -> Machine:
+def _machine_from_host_line(inv_hostname: str, kv_parts: list[str], current_group: str) -> Machine:
     kvs: dict[str, str] = {}
     for part in kv_parts:
         if "=" in part:
@@ -193,8 +191,6 @@ def machines_to_json(machines: list[Machine]) -> str:
         if m.identity_file:
             entry["identity_file"] = m.identity_file
         if m.services:
-            entry["services"] = [
-                {k: v for k, v in vars(s).items() if v not in ("", None)} for s in m.services
-            ]
+            entry["services"] = [{k: v for k, v in vars(s).items() if v not in ("", None)} for s in m.services]
         hosts.append(entry)
     return json.dumps({"hosts": hosts}, indent=2)

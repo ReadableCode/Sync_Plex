@@ -99,9 +99,7 @@ async def _arr_health(client: SonarrClient | RadarrClient, kind: str) -> ServerH
     # Storage and library totals are best-effort; a failure here still leaves
     # the server marked up (the ping already succeeded).
     try:
-        disks, roots, library = await asyncio.gather(
-            client.disk_space(), client.root_folders(), _library_index(client)
-        )
+        disks, roots, library = await asyncio.gather(client.disk_space(), client.root_folders(), _library_index(client))
     except Exception as exc:  # noqa: BLE001
         health.error = str(exc)
         return health
@@ -142,9 +140,7 @@ def known_episode_total(aggregated: AggregatedResult) -> int | None:
     best = 0
     for status in aggregated.statuses:
         by_seasons = sum(
-            season.total_episode_count or season.episode_count
-            for season in status.seasons
-            if season.season_number != 0
+            season.total_episode_count or season.episode_count for season in status.seasons if season.season_number != 0
         )
         best = max(best, by_seasons, status.total_episode_count or 0)
     return best or None

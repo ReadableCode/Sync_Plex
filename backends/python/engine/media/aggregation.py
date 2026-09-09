@@ -133,7 +133,8 @@ async def search_everywhere(
     clients = [_client_for(i, media_type) for i in instances]
     snapshots = await asyncio.gather(*(_instance_snapshot(c, query) for c in clients), return_exceptions=True)
     per_instance: dict[str, dict | Exception] = {
-        c.name: s for c, s in zip(clients, snapshots)  # type: ignore[misc]
+        c.name: s  # type: ignore[misc]
+        for c, s in zip(clients, snapshots)
     }
     return merge_lookups(per_instance, media_type, config)
 
