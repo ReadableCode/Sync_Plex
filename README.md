@@ -49,8 +49,9 @@ Data commands take `--json` for scripting.
 Both also run through `cmdr`, the fleet CLI/TUI from dotfiles: `commands/`
 holds the definitions it discovers (`cmdr syncplex` opens the remote,
 `cmdr syncdrive` asks for the drive's media path, then runs the sync;
-`--check` on either is the read-only probe). Both need a terminal, so they
-run from a shell, not from inside cmdr's own TUI.
+`--check` on either is the read-only probe). Both steps are marked
+`terminal`, so cmdr's TUI hands the screen over to them and resumes when
+they exit.
 
 ## How it's put together
 

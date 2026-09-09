@@ -13,10 +13,11 @@ _syncplex() {
 
 media_remote() {
     # The remote is its own Textual TUI: cmdr launches it and gets out of
-    # the way. It needs a terminal, so inside cmdr's TUI (stdin is the null
-    # device there) this fails with a pointer instead of hanging on a pipe.
+    # the way. It needs a terminal (the .cmd marks the step terminal, so
+    # cmdr's TUI hands the screen over); any caller that pipes gets a
+    # pointer instead of a hang.
     if [ ! -t 0 ]; then
-        echo "media_remote needs a terminal: run 'cmdr syncplex' from a shell"
+        echo "media_remote needs a terminal (stdin was not one)"
         return 1
     fi
     _syncplex syncplex tui
@@ -52,7 +53,7 @@ media_remote_check() {
 _drive_path() {
     local default="$HOME/Media" path
     if ! read -r -p "media path to sync [$default]: " path; then
-        echo "drive_sync needs a terminal to ask for the path: run 'cmdr syncdrive' from a shell" >&2
+        echo "drive_sync needs a terminal to ask for the path (stdin was not one)" >&2
         return 1
     fi
     path="${path:-$default}"

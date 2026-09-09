@@ -14,10 +14,10 @@ function Invoke-Syncplex {
 
 function media_remote {
     # The remote is its own Textual TUI: cmdr launches it and gets out of
-    # the way. Inside cmdr's TUI there is no terminal, so fail with a
-    # pointer instead of hanging on a pipe.
+    # the way. The .cmd marks the step terminal, so cmdr's TUI hands the
+    # screen over; any caller that pipes gets a pointer instead of a hang.
     if ([Console]::IsInputRedirected) {
-        Write-Host "media_remote needs a terminal: run 'cmdr syncplex' from a shell"
+        Write-Host "media_remote needs a terminal (stdin was not one)"
         exit 1
     }
     exit (Invoke-Syncplex syncplex tui)
@@ -53,7 +53,7 @@ function media_remote_check {
 function Get-DrivePath {
     $default = Join-Path $HOME 'Media'
     if ([Console]::IsInputRedirected) {
-        Write-Host "drive_sync needs a terminal to ask for the path: run 'cmdr syncdrive' from a shell"
+        Write-Host "drive_sync needs a terminal to ask for the path (stdin was not one)"
         return $null
     }
     $path = Read-Host "media path to sync [$default]"
