@@ -150,8 +150,8 @@ def test_requests_table_has_rls_enabled(store):
 # --- RLS, verified straight against Postgres ---------------------------------
 # PostgREST enforces the policies by SET ROLE-ing into syncplex_user and setting
 # request.jwt.claims. Doing exactly that here proves the policies themselves,
-# without depending on PostgREST being recreated with the schema exposed.
-# test_postgrest_real.py covers the same ground over real HTTP.
+# without depending on PostgREST being recreated with the schema exposed;
+# test_postgrest_real.py is what checks that exposure over real HTTP.
 
 
 def _as_role(cur, claims: str) -> None:
