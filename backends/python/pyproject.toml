@@ -1,7 +1,7 @@
 [project]
 name = "syncplex"
 version = "0.1.0"
-description = "Sync_Plex media remote — multi-instance Sonarr/Radarr/Plex search/status/add"
+description = "Sync_Plex — multi-instance Sonarr/Radarr/Plex remote, request queue, drive sync"
 requires-python = ">=3.14"
 dependencies = [
     "typer>=0.12",
@@ -17,7 +17,6 @@ dependencies = [
 
 [project.scripts]
 syncplex = "engine.cli:app"
-syncplex-drive-sync = "drive_sync.cli:main"
 
 [build-system]
 requires = ["hatchling"]
@@ -58,7 +57,7 @@ dev = [
 ]
 # Everything the web image never imports lives in this group, not in
 # project.dependencies, so the Docker image stays lean: the drive sync and
-# the TUIs (readable-utils carries the shared terminal-navy theme). Local
+# the TUI (readable-utils carries the shared terminal-navy theme). Local
 # `uv sync` installs it via default-groups; the Dockerfile syncs with
 # --no-default-groups.
 drive-sync = [

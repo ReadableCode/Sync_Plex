@@ -1,7 +1,8 @@
 """The drive-sync TUI: pick a drive folder, see what its config wants against
 what it holds, fix or extend the config (fuzzy search against Plex), then run
-the sync with per-file progress. Screens, not an App, so the media remote can
-push them onto its own app and the standalone entry point wraps them thinly.
+the sync with per-file progress. Screens, not an App: the syncplex TUI
+(engine/media/tui/app.py) pushes them on ctrl+s, and `syncplex drive` opens
+straight onto them.
 """
 
 from __future__ import annotations
@@ -27,7 +28,7 @@ from drive_sync.editor import find_editor
 from drive_sync.library import LibraryTitle, PlexLibrary, fuzzy_find
 from drive_sync.plan import Action, Plan, TitlePlan, make_plan
 from drive_sync.transfer import SyncRunner
-from engine.media.tui.theme import AMBER_BRIGHT, GREEN_BRIGHT, HAIRLINE, MUTED, RED
+from engine.media.tui.theme import AMBER_BRIGHT, GREEN_BRIGHT, HAIRLINE, MUTED, RED, SURFACE
 
 DRIVES = None  # the "current folder" on Windows when listing drive letters
 
@@ -77,7 +78,7 @@ class ConfirmScreen(ModalScreen[bool]):
     CSS = f"""
     ConfirmScreen {{ align: center middle; }}
     ConfirmScreen > Vertical {{
-        width: 70; height: auto; border: solid {HAIRLINE}; background: $surface; padding: 1 2;
+        width: 70; height: auto; border: solid {HAIRLINE}; background: {SURFACE}; padding: 1 2;
     }}
     ConfirmScreen #question {{ margin-bottom: 1; }}
     ConfirmScreen #keys {{ color: {MUTED}; }}
@@ -112,7 +113,7 @@ class FuzzyPickScreen(ModalScreen[str | None]):
     CSS = f"""
     FuzzyPickScreen {{ align: center middle; }}
     FuzzyPickScreen > Vertical {{
-        width: 80%; height: 80%; border: solid {HAIRLINE}; background: $surface; padding: 0 1;
+        width: 80%; height: 80%; border: solid {HAIRLINE}; background: {SURFACE}; padding: 0 1;
     }}
     FuzzyPickScreen #title {{ padding: 1 1 0 1; color: {GREEN_BRIGHT}; text-style: bold; }}
     FuzzyPickScreen #matches {{ height: 1fr; border: none; }}

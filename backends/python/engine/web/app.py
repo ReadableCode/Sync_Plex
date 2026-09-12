@@ -224,7 +224,7 @@ def run_web(host: str = "127.0.0.1", port: int = 8788) -> None:  # noqa: C901 â€
         """The queue as this user sees it. Built per call because the store
         carries the session token that RLS reads â€” there is no process-wide
         view of the queue any more."""
-        return RequestStore(session_token(app.storage.user), user)
+        return RequestStore(session_token(app.storage.user), user.id)
 
     def _client_ip(request: Request) -> str:
         # First X-Forwarded-For hop when behind the reverse proxy. Spoofable

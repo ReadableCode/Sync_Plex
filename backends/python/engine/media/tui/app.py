@@ -1,19 +1,20 @@
-"""syncplex TUI — the media remote and the request queue, over engine.media.
+"""syncplex TUI — the media remote, the request queue and drive sync, one app.
 
-Two working screens on one app: the media screen (search every Sonarr,
-Radarr and Plex; add, or request when not an admin) and the requests screen
-(the approval queue, with the same server picture the web queue shows). A
-health strip sits under the header on both. Login is the web UI's: the
-shared auth service issues the JWT the queue calls carry (tui/session.py).
-ctrl+s pushes the drive-sync screens (drive_sync.screens) onto this app.
-Styling follows the readablecode "terminal navy" design system (dotfiles
-design/STYLE.md).
+The media screen searches every Sonarr, Radarr and Plex and adds; the
+requests screen (ctrl+r) is the approval queue, with the same server picture
+the web queue shows; ctrl+s pushes the drive-sync screens (drive_sync.screens)
+and `syncplex drive` opens straight onto them. A health strip sits under the
+header on the media and requests screens. There is no sign-in: whoever holds
+the .env is the admin, and the queue calls carry a token minted from it
+(tui/operator.py). Styling follows the readablecode "terminal navy" design
+system (dotfiles design/STYLE.md).
 """
 
 from __future__ import annotations
 
 import asyncio
 from datetime import datetime
+from pathlib import Path
 
 from rich.text import Text
 from textual import on, work
@@ -37,10 +38,9 @@ from ..aggregation import (
 from ..config import load_media_config
 from ..health import check_all_servers, estimate_add_bytes, format_bytes
 from ..models import AggregatedResult, MediaType, PresenceState, ServerHealth
-from ..notifications import notify_new_request
 from ..present import badge, meta_line, short, stats_line
 from ..requests import MediaRequest, RequestStatus, fulfill_request
-from . import session as sessions
+from . import operator as operators
 from .theme import AMBER_BRIGHT, BG, GREEN, GREEN_BRIGHT, HAIRLINE, INK_2, MUTED, RED, SURFACE, TERMINAL_NAVY
 
 STATE_GLYPHS = {
@@ -136,70 +136,6 @@ def best_server(aggregated: AggregatedResult, health: dict[str, ServerHealth], n
 
 
 # --- modals ---
-
-
-class LoginScreen(ModalScreen["sessions.Session | None"]):
-    """Username and password, straight to the shared auth service."""
-
-    BINDINGS = [Binding("escape", "cancel", "cancel")]
-    CSS = f"""
-    LoginScreen {{ align: center middle; }}
-    LoginScreen > Vertical {{
-        width: 60; height: auto;
-        border: solid {HAIRLINE}; background: {SURFACE}; padding: 1 2;
-    }}
-    LoginScreen #title {{ color: {GREEN_BRIGHT}; text-style: bold; margin-bottom: 1; }}
-    LoginScreen Input {{ margin-bottom: 1; }}
-    LoginScreen #error {{ color: {RED}; }}
-    LoginScreen #hint {{ color: {MUTED}; }}
-    """
-
-    def __init__(self, why: str = "") -> None:
-        super().__init__()
-        self.why = why
-
-    def compose(self) -> ComposeResult:
-        with Vertical():
-            yield Static("sign in" + (f"  [{MUTED}]{self.why}[/]" if self.why else ""), id="title")
-            yield Input(placeholder="username", id="username")
-            yield Input(placeholder="password", password=True, id="password")
-            yield Static("", id="error")
-            yield Static("enter signs in · escape cancels · the same accounts as the web ui", id="hint")
-
-    def on_mount(self) -> None:
-        self.query_one("#username", Input).focus()
-
-    @on(Input.Submitted, "#username")
-    def to_password(self, event: Input.Submitted) -> None:
-        event.stop()
-        self.query_one("#password", Input).focus()
-
-    @on(Input.Submitted, "#password")
-    def submit(self, event: Input.Submitted) -> None:
-        event.stop()
-        username = self.query_one("#username", Input).value.strip()
-        password = self.query_one("#password", Input).value
-        if not username or not password:
-            self.query_one("#error", Static).update("both fields, please")
-            return
-        self.query_one("#error", Static).update(f"[{MUTED}]signing in…[/]")
-        self.attempt(username, password)
-
-    @work(thread=True, exclusive=True)
-    def attempt(self, username: str, password: str) -> None:
-        session, reason = sessions.login(username, password)
-        self.app.call_from_thread(self.finish, session, reason)
-
-    def finish(self, session: sessions.Session | None, reason: str) -> None:
-        if session is None:
-            self.query_one("#error", Static).update(reason)
-            self.query_one("#password", Input).value = ""
-            self.query_one("#password", Input).focus()
-            return
-        self.dismiss(session)
-
-    def action_cancel(self) -> None:
-        self.dismiss(None)
 
 
 class PickScreen(ModalScreen[str | None]):
@@ -299,16 +235,21 @@ class HelpScreen(ModalScreen[None]):
   type to search · [bold]escape[/] hops to the results, where the letter keys work · [bold]/[/] back to typing
   [bold]t[/] tv / movies · [bold]↑↓[/] pick a result · [bold]r[/] refresh it
   [bold]a[/] add the title to a server (a picker when several could take it)
-  [bold]w[/] request it / withdraw the request  [{MUTED}](signed in as a non-admin)[/]
 
 [{GREEN_BRIGHT}]//[/] [bold]requests[/]  [{MUTED}](ctrl+r from anywhere)[/]
   [bold]↑↓[/] pick a request · [bold]a[/] / [bold]enter[/] approve onto a server · [bold]d[/] deny with a reason
   [bold]r[/] refresh · [bold]escape[/] back to media
 
-[{GREEN_BRIGHT}]//[/] [bold]everywhere[/]
-  [bold]ctrl+l[/] sign in / out · [bold]ctrl+s[/] drive sync · [bold]f1[/] or [bold]?[/] help · [bold]ctrl+q[/] quit
+[{GREEN_BRIGHT}]//[/] [bold]drive sync[/]  [{MUTED}](ctrl+s from anywhere, or `syncplex drive [folder]`)[/]
+  browse to the drive's media folder: [bold]enter[/] opens · [bold]backspace[/] up · [bold]space[/] picks this folder
+  on the drive: [bold]enter[/] syncs · [bold]a[/]/[bold]m[/] add a show/movie · [bold]f[/] fix a title
+  [bold]d[/] remove · [bold]+[/]/[bold]-[/] episodes to keep · [bold]e[/] edit the config · [bold]escape[/] back
 
-[{MUTED}]the strip under the header is every server: up, latency, disk, library; it refreshes each minute[/]
+[{GREEN_BRIGHT}]//[/] [bold]everywhere[/]
+  [bold]f1[/] or [bold]?[/] help · [bold]ctrl+q[/] quit
+
+[{MUTED}]the strip under the header is every server: up, latency, disk, library; it refreshes each minute.
+you act as SYNCPLEX_OPERATOR from .env: every add and approval is yours, and nothing asks you to sign in.[/]
 """
 
     def compose(self) -> ComposeResult:
@@ -329,7 +270,7 @@ class HealthStrip(Static):
     HealthStrip {{ padding: 0 1; height: auto; border-bottom: solid {HAIRLINE}; color: {INK_2}; }}
     """
 
-    def render_health(self, health: dict[str, ServerHealth], pending: int | None, user: str) -> None:
+    def render_health(self, health: dict[str, ServerHealth], pending: int | None, operator: str) -> None:
         if not health:
             line = f"[{MUTED}]servers: checking…[/]"
         else:
@@ -348,7 +289,7 @@ class HealthStrip(Static):
                     chip += f" [{colour}]{format_bytes(server.disk_free_bytes or 0)} free[/]"
                 chips.append(chip)
             line = "   ".join(chips)
-        who = f"[{MUTED}]not signed in · ctrl+l[/]" if not user else f"[{MUTED}]{user}[/]"
+        who = f"[{MUTED}]{operator}[/]" if operator else f"[{AMBER_BRIGHT}]queue off · f1[/]"
         if pending:
             who = f"[{AMBER_BRIGHT}]⏳ {pending} request(s) · ctrl+r[/]  " + who
         self.update(f"{line}    {who}")
@@ -362,7 +303,6 @@ class MediaScreen(Screen[None]):
         Binding("slash", "focus_search", "search"),
         Binding("t", "toggle_type", "tv/movie"),
         Binding("a", "add", "add"),
-        Binding("w", "request", "request"),
         Binding("r", "refresh_selected", "refresh"),
         Binding("escape", "hop", "results/search", show=False),
     ]
@@ -506,14 +446,6 @@ class MediaScreen(Screen[None]):
 
     def _action_lines(self, aggregated: AggregatedResult) -> list[str]:
         absent = [s.instance for s in aggregated.statuses if s.state == PresenceState.NOT_PRESENT]
-        session = self.remote.session
-        if session is not None and not session.user.is_admin:
-            pending = self.remote.own_pending.get(aggregated.result.external_key)
-            if pending:
-                return [f"[{AMBER_BRIGHT}]⏳ requested by you[/] · [bold]w[/] withdraws it"]
-            if not absent:
-                return [f"[{MUTED}]every server has it[/]"]
-            return ["[bold]w[/] requests it · an admin approves and picks the server"]
         if not absent:
             return [f"[{MUTED}]every server has it[/]"]
         if len(absent) == 1:
@@ -547,10 +479,6 @@ class MediaScreen(Screen[None]):
         aggregated = self._selected()
         if aggregated is None:
             return
-        session = self.remote.session
-        if session is not None and not session.user.is_admin:
-            self.notify("signed in as a user: w requests it instead", severity="warning")
-            return
         absent = [s.instance for s in aggregated.statuses if s.state == PresenceState.NOT_PRESENT]
         if not absent:
             self.notify("every server has it already")
@@ -576,39 +504,6 @@ class MediaScreen(Screen[None]):
             await self._refresh_result(aggregated)
         else:
             self.notify(result.message, severity="error", timeout=8)
-
-    def action_request(self) -> None:
-        aggregated = self._selected()
-        if aggregated is None:
-            return
-        if not self.remote.require_session("to file a request"):
-            return
-        self.file_or_withdraw(aggregated)
-
-    @work(group="request")
-    async def file_or_withdraw(self, aggregated: AggregatedResult) -> None:
-        session = self.remote.session
-        assert session is not None
-        store = session.store()
-        key = aggregated.result.external_key
-        try:
-            pending = self.remote.own_pending.get(key)
-            if pending is not None:
-                await asyncio.to_thread(store.withdraw, pending.id, session.user.username)
-                self.notify(f"withdrew the request for {aggregated.result.title}")
-            else:
-                request = await asyncio.to_thread(store.create, aggregated.result, session.user.username)
-                estimate = max(
-                    (estimate_add_bytes(aggregated, self.remote.health.get(s.instance)) for s in aggregated.statuses),
-                    default=None,
-                )
-                notify_new_request(request, estimate_bytes=estimate)
-                self.notify(f"requested {aggregated.result.title} — waiting for an admin")
-        except Exception as exc:  # noqa: BLE001 — the queue failing must not take the screen down
-            self.notify(str(exc)[:160], severity="error", timeout=8)
-            return
-        await self.remote.refresh_queue_counts()
-        self._render_detail(aggregated)
 
     def action_refresh_selected(self) -> None:
         aggregated = self._selected()
@@ -644,7 +539,6 @@ class RequestsScreen(Screen[None]):
     BINDINGS = [
         Binding("enter,a", "approve", "approve"),
         Binding("d", "deny", "deny"),
-        Binding("w", "withdraw", "withdraw"),
         Binding("r", "reload", "refresh"),
         Binding("escape", "back", "media"),
     ]
@@ -698,16 +592,13 @@ class RequestsScreen(Screen[None]):
 
     @work(exclusive=True, group="queue")
     async def reload(self) -> None:
-        session = self.remote.session
-        if session is None:
+        operator = self.remote.operator
+        if operator is None:
             return
-        store = session.store()
+        store = operator.store()
         self.query_one("#detail", Static).update(f"[{MUTED}]loading the queue…[/]")
         try:
-            if session.user.is_admin:
-                everything = await asyncio.to_thread(store.list)
-            else:
-                everything = await asyncio.to_thread(store.list, None, session.user.username)
+            everything = await asyncio.to_thread(store.list)
         except Exception as exc:  # noqa: BLE001
             self.query_one("#detail", Static).update(f"[{RED}]could not load the queue: {str(exc)[:200]}[/]")
             return
@@ -737,18 +628,14 @@ class RequestsScreen(Screen[None]):
                 outcome[:60],
                 key=request.id,
             )
-        who = "pending" if session.user.is_admin else "your pending"
-        self.sub_title = f"requests — {len(pending_rows)} {who}, {len(history_rows)} in history"
-        self.remote.pending_count = len(pending_rows) if session.user.is_admin else None
+        self.sub_title = f"requests — {len(pending_rows)} pending, {len(history_rows)} in history"
+        self.remote.pending_count = len(pending_rows)
         self.remote.refresh_strip()
         if pending_rows:
             table.focus()
             self.show_request(pending_rows[0])
         else:
-            empty = (
-                "queue is empty." if session.user.is_admin else "nothing yet — search on the media screen and hit w."
-            )
-            self.query_one("#detail", Static).update(f"[{MUTED}]{empty}[/]")
+            self.query_one("#detail", Static).update(f"[{MUTED}]queue is empty.[/]")
 
     @staticmethod
     def _when(stamp: datetime) -> str:
@@ -813,13 +700,10 @@ class RequestsScreen(Screen[None]):
             names = [i.name for i in self.remote.config.arr_instances(r.media_type.value)]
             best = best_server(picture, self.remote.health, names)
             lines.append("")
-            if self.remote.session and self.remote.session.user.is_admin:
-                if best:
-                    lines.append(f"[bold]enter[/] approves onto [bold]{best}[/] (or picks) · [bold]d[/] denies")
-                else:
-                    lines.append(f"[{MUTED}]every server has it: approve resolves the request, d denies[/]")
+            if best:
+                lines.append(f"[bold]enter[/] approves onto [bold]{best}[/] (or picks) · [bold]d[/] denies")
             else:
-                lines.append("[bold]w[/] withdraws this request")
+                lines.append(f"[{MUTED}]every server has it: approve resolves the request, d denies[/]")
         if r.overview:
             lines.append(f"\n[{MUTED}]{r.overview[:300]}[/]")
         self.query_one("#detail", Static).update("\n".join(lines))
@@ -828,11 +712,7 @@ class RequestsScreen(Screen[None]):
 
     def action_approve(self) -> None:
         request = self._selected()
-        session = self.remote.session
-        if request is None or session is None:
-            return
-        if not session.user.is_admin:
-            self.notify("only an admin approves; w withdraws your own", severity="warning")
+        if request is None or self.remote.operator is None:
             return
         names = [i.name for i in self.remote.config.arr_instances(request.result.media_type.value)]
         if not names:
@@ -850,21 +730,17 @@ class RequestsScreen(Screen[None]):
 
     @work(group="resolve")
     async def do_approve(self, request: MediaRequest, instance: str) -> None:
-        session = self.remote.session
-        assert session is not None
+        operator = self.remote.operator
+        assert operator is not None
         self.notify(f"adding {request.result.title} to {instance}…")
-        result = await fulfill_request(session.store(), request.id, instance, session.user.username, self.remote.config)
+        result = await fulfill_request(operator.store(), request.id, instance, operator.username, self.remote.config)
         self.notify(result.message, severity="information" if result.ok else "error", timeout=8)
         self.pictures.pop(request.id, None)
         self.reload()
 
     def action_deny(self) -> None:
         request = self._selected()
-        session = self.remote.session
-        if request is None or session is None:
-            return
-        if not session.user.is_admin:
-            self.notify("only an admin denies; w withdraws your own", severity="warning")
+        if request is None or self.remote.operator is None:
             return
 
         def noted(note: str | None) -> None:
@@ -877,34 +753,14 @@ class RequestsScreen(Screen[None]):
 
     @work(group="resolve")
     async def do_deny(self, request: MediaRequest, note: str) -> None:
-        session = self.remote.session
-        assert session is not None
+        operator = self.remote.operator
+        assert operator is not None
         try:
-            await asyncio.to_thread(session.store().deny, request.id, session.user.username, note)
+            await asyncio.to_thread(operator.store().deny, request.id, operator.username, note)
         except (KeyError, ValueError) as exc:
             self.notify(str(exc), severity="error")
         else:
             self.notify(f"denied {request.result.title}")
-        self.reload()
-
-    def action_withdraw(self) -> None:
-        request = self._selected()
-        session = self.remote.session
-        if request is None or session is None:
-            return
-        self.do_withdraw(request)
-
-    @work(group="resolve")
-    async def do_withdraw(self, request: MediaRequest) -> None:
-        session = self.remote.session
-        assert session is not None
-        try:
-            await asyncio.to_thread(session.store().withdraw, request.id, session.user.username)
-        except (KeyError, ValueError) as exc:
-            self.notify(str(exc), severity="error")
-        else:
-            self.notify(f"withdrew {request.result.title}")
-        await self.remote.refresh_queue_counts()
         self.reload()
 
     def action_back(self) -> None:
@@ -922,33 +778,39 @@ class MediaRemote(App[None]):
     """
     BINDINGS = [
         Binding("ctrl+r", "requests", "requests", priority=True),
-        Binding("ctrl+l", "login", "sign in/out", priority=True),
         Binding("ctrl+s", "show_sync", "drive sync", priority=True),
         Binding("f1,question_mark", "help", "help", priority=True),
         Binding("ctrl+q,ctrl+c", "quit", "quit", priority=True),
     ]
 
-    def __init__(self) -> None:
+    def __init__(self, open_drive: bool = False, folder: Path | None = None) -> None:
+        """`open_drive` starts on the drive-sync screens (`syncplex drive`): the
+        folder's drive screen when one is given, else the folder browser."""
         super().__init__()
         self.register_theme(TERMINAL_NAVY)
         self.theme = "terminal-navy"
         self.config = load_media_config()
         self.health: dict[str, ServerHealth] = {}
-        self.session: sessions.Session | None = sessions.load_saved() if sessions.configured() else None
+        self.operator, self.queue_problem = operators.load()
         self.pending_count: int | None = None
-        self.own_pending: dict[str, MediaRequest] = {}  # a user's open requests by external key
+        self.open_drive = open_drive
+        self.folder = folder
 
     def on_mount(self) -> None:
         self.push_screen(MediaScreen())
+        if self.open_drive:
+            self.show_sync(self.folder)
         self.set_interval(60.0, self.refresh_health)
         self.refresh_health()
-        if self.session is not None:
+        if self.operator is not None:
             self.refresh_queue_counts_worker()
+        else:
+            self.notify(f"request queue off: {self.queue_problem}", severity="warning", timeout=8)
 
     # --- shared state ---
 
     def check_action(self, action: str, parameters: tuple[object, ...]) -> bool | None:
-        if action in {"login", "requests", "show_sync", "help"} and isinstance(self.screen, ModalScreen):
+        if action in {"requests", "show_sync", "help"} and isinstance(self.screen, ModalScreen):
             return False
         return True
 
@@ -965,26 +827,20 @@ class MediaRemote(App[None]):
         # App.query walks the default screen, so this asks the ACTIVE screen;
         # the others redraw their strip when they resume.
         for strip in self.screen.query(HealthStrip):
-            strip.render_health(self.health, self.pending_count, self.session.user.username if self.session else "")
+            strip.render_health(self.health, self.pending_count, self.operator.username if self.operator else "")
 
     @work(group="counts")
     async def refresh_queue_counts_worker(self) -> None:
         await self.refresh_queue_counts()
 
     async def refresh_queue_counts(self) -> None:
-        """The strip's pending badge (admins) and the user's own open requests (for the media detail)."""
-        if self.session is None:
+        """The strip's pending badge."""
+        if self.operator is None:
             self.pending_count = None
-            self.own_pending = {}
             self.refresh_strip()
             return
-        store = self.session.store()
         try:
-            if self.session.user.is_admin:
-                self.pending_count = await asyncio.to_thread(store.pending_count)
-            else:
-                mine = await asyncio.to_thread(store.list, RequestStatus.PENDING, self.session.user.username)
-                self.own_pending = {r.result.external_key: r for r in mine}
+            self.pending_count = await asyncio.to_thread(self.operator.store().pending_count)
         except Exception as exc:  # noqa: BLE001
             self.notify(f"queue: {str(exc)[:120]}", severity="warning")
         self.refresh_strip()
@@ -1006,37 +862,6 @@ class MediaRemote(App[None]):
                 label += f"  ({stats})"
         return label
 
-    # --- login ---
-
-    def require_session(self, why: str) -> bool:
-        """True when signed in; otherwise opens the login and returns False (retry after)."""
-        if self.session is not None:
-            return True
-        if not sessions.configured():
-            self.notify("no request queue configured (POSTGREST_URL / AUTH_URL)", severity="warning")
-            return False
-        self.push_screen(LoginScreen(why), self._signed_in)
-        return False
-
-    def _signed_in(self, session: sessions.Session | None) -> None:
-        if session is None:
-            return
-        self.session = session
-        self.notify(f"signed in as {session.user.username}" + (" (admin)" if session.user.is_admin else ""))
-        self.refresh_queue_counts_worker()
-
-    def action_login(self) -> None:
-        if self.session is not None:
-            sessions.clear()
-            name = self.session.user.username
-            self.session = None
-            self.pending_count = None
-            self.own_pending = {}
-            self.refresh_strip()
-            self.notify(f"signed out {name}")
-            return
-        self.require_session("")
-
     # --- navigation ---
 
     def action_requests(self) -> None:
@@ -1045,7 +870,8 @@ class MediaRemote(App[None]):
     def open_requests(self) -> None:
         if isinstance(self.screen, RequestsScreen):
             return
-        if not self.require_session("to see the request queue"):
+        if self.operator is None:
+            self.notify(f"request queue off: {self.queue_problem}", severity="warning")
             return
 
         def _refresh_counts(_result: None) -> None:
@@ -1054,13 +880,17 @@ class MediaRemote(App[None]):
         self.push_screen(RequestsScreen(), _refresh_counts)
 
     def action_show_sync(self) -> None:
-        from drive_sync.screens import FolderScreen  # drive-sync deps stay out of the web image
+        self.show_sync(None)
 
-        self.push_screen(FolderScreen())
+    def show_sync(self, folder: Path | None) -> None:
+        """The drive screens on top of media; escape from them lands back here."""
+        from drive_sync.screens import DriveScreen, FolderScreen  # drive-sync deps stay out of the web image
+
+        self.push_screen(DriveScreen(folder) if folder is not None else FolderScreen())
 
     def action_help(self) -> None:
         self.push_screen(HelpScreen())
 
 
-def run_tui() -> None:
-    MediaRemote().run()
+def run_tui(open_drive: bool = False, folder: Path | None = None) -> None:
+    MediaRemote(open_drive=open_drive, folder=folder).run()

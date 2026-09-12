@@ -22,7 +22,6 @@ from enum import Enum
 from pydantic import BaseModel, Field
 
 from .. import store as pgrest  # aliased: `store` is the local name for a RequestStore
-from ..web.users import User
 from .models import AddResult, AggregatedResult, MediaSearchResult
 
 
@@ -69,14 +68,16 @@ def _to_request(row: dict) -> MediaRequest:
 class RequestStore:
     """The queue as one logged-in user sees it.
 
-    Every method is an HTTP call to PostgREST with ``user``'s token, so the
+    Every method is an HTTP call to PostgREST with the caller's token, so the
     rows that come back are already the ones RLS permits. Nothing here filters
-    for security; the database does that.
+    for security; the database does that. ``user_id`` is what a requester's
+    own rows carry; an admin token (the TUI's, engine/media/tui/operator.py)
+    never files a request and passes an empty one.
     """
 
-    def __init__(self, token: str, user: User):
+    def __init__(self, token: str, user_id: str):
         self.token = token
-        self.user = user
+        self.user_id = user_id
 
     # --- queries ---
 
@@ -110,7 +111,7 @@ class RequestStore:
             self.token,
             {
                 "select": _SELECT,
-                "user_id": f"eq.{self.user.id}",
+                "user_id": f"eq.{self.user_id}",
                 "status": f"eq.{RequestStatus.PENDING.value}",
                 "external_key": f"eq.{result.external_key}",
                 "limit": "1",
@@ -130,7 +131,7 @@ class RequestStore:
             self.token,
             {
                 "id": uuid.uuid4().hex[:12],
-                "user_id": self.user.id,
+                "user_id": self.user_id,
                 "requested_by": requested_by,
                 "result": result.model_dump(mode="json"),
                 "external_key": result.external_key,

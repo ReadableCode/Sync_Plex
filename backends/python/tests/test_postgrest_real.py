@@ -32,7 +32,7 @@ def _login(users: UserStore, username: str) -> RequestStore:
         raise AssertionError(f"auth service login failed — red, not skipped: {exc.detail}") from exc
     user = auth.validate_token(token, users)
     assert user is not None, "service token must validate in-app"
-    return RequestStore(token, user)
+    return RequestStore(token, user.id)
 
 
 @pytest.fixture(scope="module")
@@ -57,6 +57,17 @@ def test_postgrest_serves_the_syncplex_schema_to_the_user(users):
         assert store.list() == []  # fresh account: RLS hides every other user's rows
     finally:
         users.remove(username)
+
+
+def test_the_tui_minted_admin_token_reaches_the_queue(users):
+    """The TUI signs in nobody: engine/media/tui/operator.py mints an admin
+    JWT from POSTGREST_JWT_SECRET in .env. This proves that secret is the one
+    the real PostgREST validates with, and that the admin policy admits the
+    token: a GET of the pending count, never a write."""
+    from engine.media.tui.operator import Operator
+
+    store = Operator("ztest-operator").store()
+    assert store.pending_count() >= 0  # a rejected token raises StoreError (401) here
 
 
 def test_disable_revokes_the_live_token(users):

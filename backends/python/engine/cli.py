@@ -1,9 +1,11 @@
+from pathlib import Path
+
 import typer
 
 from .media.cli import media_app
 from .web.users_cli import users_app
 
-app = typer.Typer(name="syncplex", help="Sync_Plex — household media remote")
+app = typer.Typer(name="syncplex", help="Sync_Plex — household media remote and drive sync")
 
 
 @app.callback(invoke_without_command=True)
@@ -24,10 +26,27 @@ app.add_typer(users_app)
 
 @app.command()
 def tui():
-    """Launch the TUI (media remote + drive sync screen)."""
+    """Launch the TUI: media, the request queue, drive sync."""
     from .media.tui.app import run_tui
 
     run_tui()
+
+
+@app.command()
+def drive(
+    folder: Path | None = typer.Argument(None, help="The drive's media folder; omit it to browse for one"),
+    check: bool = typer.Option(
+        False, "--check", help="No TUI: print what a sync would do and exit 1 when the drive differs from its config"
+    ),
+):
+    """Open the TUI on the drive-sync screen, or check a drive against its config headless."""
+    if check:
+        from drive_sync.check import check as run_check  # drive-sync deps stay out of the web image
+
+        raise typer.Exit(run_check(folder))
+    from .media.tui.app import run_tui
+
+    run_tui(open_drive=True, folder=folder.resolve() if folder else None)
 
 
 @app.command()

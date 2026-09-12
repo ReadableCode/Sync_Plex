@@ -10,24 +10,22 @@ The household media app. Two things, one project:
 ## Quick start
 
 ```bash
-syncplex                           # the TUI: search, add or request, the queue (ctrl+s = drive sync)
+syncplex                           # the TUI: search and add, the request queue (ctrl+r), drive sync (ctrl+s)
+syncplex drive                     # the same TUI, opened on the drive-sync folder browser
+syncplex drive /Volumes/X/Media    # ... straight onto that drive
 syncplex search "severance"        # status on every instance, merged
 syncplex add "severance" --to sonarr-elitedesk
-syncdrive                          # drive sync TUI: browse for the drive, edit its config, sync
 ```
 
-(`syncplex` and `syncdrive` are shell functions from my dotfiles that `uv run`
-into this repo — nothing is installed on PATH, and neither `syncplex` nor
-`syncplex-drive-sync` works as a bare command without them. Without those
-functions, or on Windows, run from the repo root:
+(`syncplex` is a shell function from my dotfiles that `uv run`s into this
+repo — nothing is installed on PATH, so it is not a bare command without it.
+Without that function, or on Windows, run from the repo root:
 
 ```bash
 uv run --project backends/python syncplex ...
-uv run --project backends/python syncplex-drive-sync [<path>] [--check]
 ```
 
-`syncdrive` is just the second line. See
-[Drive sync on Windows](#drive-sync) for the Windows specifics.)
+See [Drive sync on Windows](#drive-sync) for the Windows specifics.)
 
 ## Commands
 
@@ -39,47 +37,49 @@ All commands are flat — no nested groups except `users`.
 | `syncplex seasons "title" [--episodes]` | Per-season / per-episode breakdown |
 | `syncplex add "title" --to <instance>` | Add the top result to that instance |
 | `syncplex instances` | List configured instances (from personal_hosts.json + .env) |
-| `syncplex` (or `syncplex tui`) | Textual TUI: search, add or request, the approval queue, server health; drive sync on `ctrl+s` |
+| `syncplex` (or `syncplex tui`) | The TUI: search and add, the approval queue, server health, drive sync |
+| `syncplex drive [path] [--check]` | The TUI opened on drive sync: the folder browser, or straight onto `path`; `--check` prints the plan headless and exits 1 if the drive is behind its config |
 | `syncplex web [--host IP] [--port 8788]` | The web UI (NiceGUI) |
 | `syncplex users <add\|list\|passwd\|role\|disable\|enable\|remove>` | Web UI accounts |
-| `syncdrive [path] [--check]` | Drive sync TUI (`uv run ... syncplex-drive-sync`): browse for the drive, edit its config, sync with progress; `--check` prints the plan headless and exits 1 if the drive is behind its config |
 
 Data commands take `--json` for scripting.
 
-Both also run through `cmdr`, the fleet CLI/TUI from dotfiles: `commands/`
-holds the definitions it discovers (`cmdr syncplex` opens the remote,
-`cmdr syncdrive` opens the drive-sync TUI; `--check` on either is the
-read-only probe). Both steps are marked `terminal`, so cmdr's TUI hands the
-screen over to them and resumes when they exit.
+A drive's own check is `syncplex drive <path> --check` from a shell, since
+it needs the folder.
 
 ## The TUI
 
-`syncplex tui` is the media remote and the request queue in one terminal app,
-signed in with the same accounts as the web UI (`ctrl+l`; the token is kept
-in `~/.config/syncplex/tui_session.json` for the session's 30 days, so it
-asks once). Under the header, a strip shows every server: up or down,
-latency, free disk, and, for an admin, how many requests are waiting.
+`syncplex` is the media remote, the request queue and drive sync in one
+terminal app. Nobody signs in: whoever holds the `.env` is the admin. The
+queue calls carry a token the TUI mints itself from `POSTGREST_JWT_SECRET`
+(the secret the shared auth service signs the web's tokens with) under the
+name in `SYNCPLEX_OPERATOR`, so PostgREST and its row-level security see a
+logged-in admin and every approval is recorded under that name. Without
+those keys the queue screen is off, with a warning naming what is missing;
+search and add still work. Under the header, a strip shows every server: up
+or down, latency, free disk, and how many requests are waiting.
 
 - **media**: type to search; `escape` hops to the results, where the letter
   keys work, and `/` goes back to typing. `t` flips tv/movies, `↑↓` picks a
   result, `r` refreshes it. The detail pane shows presence, seasons and size
   per server, Plex watch-readiness, and what an add would cost against each
   server's free space. `a` adds (a picker when more than one server could
-  take it, preselecting the one with the most room). Signed in as a
-  non-admin, `w` files or withdraws a request instead, with the same ntfy
-  ping the web sends.
+  take it, preselecting the one with the most room).
 - **requests** (`ctrl+r`): the pending queue with the requester and when,
   and the same server picture for the highlighted one. `enter` or `a`
   approves onto a server (picker, best server preselected; the download
   only starts when the server accepts, exactly like the web), `d` denies
-  with a reason, `r` refreshes. History sits below. A non-admin sees their
-  own requests and can withdraw with `w`.
+  with a reason, `r` refreshes. History sits below.
+- **drive sync** (`ctrl+s`, or `syncplex drive [path]` to start there): the
+  folder browser, then the drive screen; see [Drive sync](#drive-sync).
+  `escape` comes back to media.
 - `f1` or `?` opens the key reference, `ctrl+q` quits.
 
 ## How it's put together
 
-One Python project at `backends/python`, two packages, no internal REST API —
-every UI imports the same code in-process:
+One Python project at `backends/python`, two packages, one entry point
+(`syncplex`), no internal REST API — every UI imports the same code
+in-process:
 
 ```plaintext
 backends/python/
@@ -87,17 +87,22 @@ backends/python/
 │   │                  #   status aggregation, request queue
 │   ├── cli.py             # all the flat commands above
 │   ├── media/present.py   # wording both UIs share (badges, sizes, headroom)
-│   ├── media/tui/         # the TUI: app.py (screens), session.py (login), theme.py
+│   ├── media/tui/         # the TUI: app.py (screens), operator.py (the admin token), theme.py
 │   └── web/               # web UI + its login/accounts
 ├── drive_sync/        # drive sync: drive_config, library (plex + fuzzy),
-│                      #   plan, transfer, screens (the TUI), cli
+│                      #   plan, transfer, screens (pushed onto the TUI), check (--check)
 └── tests/
 ```
 
-Repo root: `cli/` shell wrappers, `commands/` (cmdr definitions and their
-step functions), `deploy/compose.elitedesk.yaml` (web deployment), `.env` →
-symlink into personal_credentials, `pyrightconfig.json` (points editors at
-`backends/python/.venv`).
+`drive_sync/` keeps its core (`drive_config`, `library`, `plan`, `transfer`)
+free of any UI import; only `screens.py` knows Textual. A web front-end for
+it later would be a page over `make_plan` and `SyncRunner`, but the drive
+has to be attached to the machine running the code, which for the web is
+the container on elitedesk, not the laptop the drive is plugged into.
+
+Repo root: `cli/syncplex` shell wrapper, `deploy/compose.elitedesk.yaml`
+(web deployment), `.env` → symlink into personal_credentials,
+`pyrightconfig.json` (points editors at `backends/python/.venv`).
 
 ## Configuration
 
@@ -127,7 +132,10 @@ Two files, both living in the sibling `personal_credentials` repo:
   `~/.config/syncplex/hosts.json` → `~/syncplex_hosts.json`.
 
 - **`.env`** — the secrets. The inventory never holds keys; each service
-  names its env var (`api_key_env`). See `.env.example` for expected keys.
+  names its env var (`api_key_env`). The TUI's queue access is three more
+  keys here (`POSTGREST_URL`, `POSTGREST_JWT_SECRET`, `SYNCPLEX_OPERATOR`);
+  the web container gets its database environment from compose instead.
+  See `.env.example` for expected keys.
 
 ## Drive sync
 
@@ -145,11 +153,11 @@ quality_profile_pref:
   - quality_profile: optimized for mobile
 ```
 
-`syncdrive` (or `uv run --project backends/python syncplex-drive-sync`) is a
-TUI. With no path it opens an ncdu-style folder browser: enter opens a
-folder, backspace goes up, `/` jumps to the root (the drive list on Windows),
-and space picks the folder you are in; folders already holding a
-`config.yaml` are marked. With a path it goes straight to that drive.
+`syncplex drive` (or `ctrl+s` inside the TUI) opens an ncdu-style folder
+browser, starting at `~/Media` when it exists: enter opens a folder,
+backspace goes up, `/` jumps to the root (the drive list on Windows), and
+space picks the folder you are in; folders already holding a `config.yaml`
+are marked. `syncplex drive <path>` goes straight to that drive.
 
 The drive screen is one row per configured title: how many files Plex has for
 it, how many are on the drive, and what a sync would get and remove, with a
@@ -170,28 +178,24 @@ live progress (rsync over SSH on macOS and Linux, a copy off the SMB share
 on Windows) and a log of what finished or failed; escape asks before stopping.
 A failed file does not stop the rest.
 
-For scripts and cmdr's check convention, `--check` prints the plan without
+For scripts, `--check` prints the plan without
 the TUI and exits 1 when the drive differs from its config (or names a title
 that is not on Plex):
 
 ```bash
-syncdrive /Volumes/ExtSSD/Media --check
+syncplex drive /Volumes/ExtSSD/Media --check
 ```
-
-`cmdr syncdrive` (from the dotfiles fleet CLI) is the no-path TUI form;
-`cmdr syncdrive --check /Volumes/ExtSSD/Media` is the headless check, and it
-asks for the folder when none is given.
 
 ### Drive sync on Windows
 
-The `cli/` wrappers are bash-only; on Windows use the `syncdrive` PowerShell
-function from the dotfiles shard, `cmdr syncdrive`, or run the entry point
-through uv, **from the repo root**, with the drive's media path:
+The `cli/` wrapper is bash-only; on Windows use the `syncplex` PowerShell
+function from the dotfiles shard, or run the entry point through uv, **from
+the repo root**, with the drive's media path:
 
 ```powershell
 cd C:\GitHub\Sync_Plex
-uv run --project backends\python syncplex-drive-sync E:\Media
-uv run --project backends\python syncplex-drive-sync E:\Media --check
+uv run --project backends\python syncplex drive E:\Media
+uv run --project backends\python syncplex drive E:\Media --check
 ```
 
 Windows notes:
@@ -250,8 +254,10 @@ one-shot import (`scripts/import_json_stores.py`, run with `--dry-run` first).
 The web UI deploys as one container behind SWAG via
 `deploy/compose.elitedesk.yaml`, pulled into `Docker/docker_compose_projects.yaml`
 with `include:`. The image build installs only the media-remote dependencies
-(`uv sync --no-default-groups`) — drive-sync deps (including the private
-`readable-utils` package) are in a dependency group the build never touches.
+(`uv sync --no-default-groups`) — drive-sync and TUI deps (including the
+private `readable-utils` package) are in a dependency group the build never
+touches; `syncplex drive` and the TUI import them lazily, so the image's
+`syncplex web` never loads them.
 
 ## Development
 

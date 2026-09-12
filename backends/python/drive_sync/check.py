@@ -1,31 +1,15 @@
-"""`syncplex-drive-sync [folder] [--check]`: the TUI by default, a headless
-plan for scripts and cmdr's check convention with --check."""
+"""`syncplex drive <folder> --check`: the plan without the TUI, for scripts
+and other callers. Exit 0 when the drive matches its config, 1 when
+it differs or names a title that is not on Plex, 2 without a folder."""
 
 from __future__ import annotations
 
-import argparse
 import sys
 from pathlib import Path
 
 from drive_sync.drive_config import ConfigError, DriveConfig
 from drive_sync.library import PlexLibrary
 from drive_sync.plan import make_plan
-
-
-def main() -> None:
-    parser = argparse.ArgumentParser(description="Mirror a drive config's shows and movies from Plex onto the drive.")
-    parser.add_argument("folder", nargs="?", help="the drive's media folder; omit it to browse for one")
-    parser.add_argument(
-        "--check",
-        action="store_true",
-        help="no TUI: print what a sync would do and exit 1 when the drive differs from its config",
-    )
-    args = parser.parse_args()
-    if args.check:
-        sys.exit(check(Path(args.folder) if args.folder else None))
-    from drive_sync.app import DriveSyncApp
-
-    DriveSyncApp(Path(args.folder).resolve() if args.folder else None).run()
 
 
 def check(folder: Path | None) -> int:
@@ -54,7 +38,3 @@ def check(folder: Path | None) -> int:
     if plan.fits is False:
         print("the downloads do not fit on the drive")
     return 1
-
-
-if __name__ == "__main__":
-    main()
