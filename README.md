@@ -211,6 +211,33 @@ Windows notes:
   `PLEX_SERVER` in `.env`). Open that share once in Explorer first if it
   needs credentials.
 
+## File integrity
+
+Some library files are damaged in the middle: the header is intact, so Plex
+shows a normal duration, size, bitrate and thumbnails, but the matroska
+cluster chain breaks part-way through. The transcoder loses sync there, the
+stream ends early, and the client reads that as the end of the episode and
+plays the next one. It looks like Plex skipping, not like a bad file.
+
+`drive_sync/integrity.py` reads a show's parts end to end through Plex's own
+part URLs, the same bytes a player gets, and reports what ffmpeg saw. ffmpeg
+demuxes without decoding, so a 1.5 GB episode takes about fifteen seconds on
+the LAN. It needs `ffmpeg` on PATH.
+
+```bash
+uv run --project backends/python python -m drive_sync.integrity "Let's Play"
+```
+
+```
+S01E01  Life is S-Rank  ok
+S01E02  I am N00b  DAMAGED  5 findings, first around 13:00
+    13:00  Element at 0x3249cfe5 ending at 0x3c71df42 exceeds containing master element ending at 0x32587e3a
+```
+
+The exit code is 1 when anything is damaged. ffmpeg's own exit code is 0 for a
+file like this: it reports the damage and reads on to the end. So the verdict
+comes from its stderr, never from the status.
+
 ## Web UI
 
 Own login page (no Authelia in front); TLS comes from the reverse proxy.
