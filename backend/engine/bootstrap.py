@@ -22,7 +22,7 @@ from . import config
 
 log = logging.getLogger("syncplex.bootstrap")
 
-# backends/python/deploy — inside the image this is /app/deploy. The SQL sits
+# backend/deploy — inside the image this is /app/deploy. The SQL sits
 # under the docker build context rather than the repo-root deploy/ so that it
 # ships in the image; see the header of 02_schema.sql.
 DEPLOY_DIR = Path(__file__).resolve().parent.parent / "deploy"

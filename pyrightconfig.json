@@ -1,7 +1,7 @@
 {
   "pythonVersion": "3.14",
-  "venvPath": "backends/python",
+  "venvPath": "backend",
   "venv": ".venv",
-  "extraPaths": ["backends/python"],
+  "extraPaths": ["backend"],
   "exclude": ["**/.venv", "**/__pycache__", "data", "logs", "templates"]
 }

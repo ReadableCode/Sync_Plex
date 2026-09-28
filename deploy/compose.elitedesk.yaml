@@ -18,7 +18,7 @@ services:
   syncplex-web:
     image: syncplex_web_image
     build:
-      context: ./backends/python
+      context: ./backend
       dockerfile: Dockerfile
     container_name: syncplex_web
     environment:

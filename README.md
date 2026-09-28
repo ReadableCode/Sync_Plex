@@ -22,7 +22,7 @@ repo — nothing is installed on PATH, so it is not a bare command without it.
 Without that function, or on Windows, run from the repo root:
 
 ```bash
-uv run --project backends/python syncplex ...
+uv run --project backend syncplex ...
 ```
 
 See [Drive sync on Windows](#drive-sync) for the Windows specifics.)
@@ -77,12 +77,12 @@ or down, latency, free disk, and how many requests are waiting.
 
 ## How it's put together
 
-One Python project at `backends/python`, two packages, one entry point
+One Python project at `backend`, two packages, one entry point
 (`syncplex`), no internal REST API — every UI imports the same code
 in-process:
 
 ```plaintext
-backends/python/
+backend/
 ├── engine/            # media remote: inventory, per-service clients,
 │   │                  #   status aggregation, request queue
 │   ├── cli.py             # all the flat commands above
@@ -102,7 +102,7 @@ the container on elitedesk, not the laptop the drive is plugged into.
 
 Repo root: `cli/syncplex` shell wrapper, `deploy/compose.elitedesk.yaml`
 (web deployment), `.env` → symlink into personal_credentials,
-`pyrightconfig.json` (points editors at `backends/python/.venv`).
+`pyrightconfig.json` (points editors at `backend/.venv`).
 
 ## Configuration
 
@@ -194,8 +194,8 @@ the repo root**, with the drive's media path:
 
 ```powershell
 cd C:\GitHub\Sync_Plex
-uv run --project backends\python syncplex drive E:\Media
-uv run --project backends\python syncplex drive E:\Media --check
+uv run --project backend syncplex drive E:\Media
+uv run --project backend syncplex drive E:\Media --check
 ```
 
 Windows notes:
@@ -225,7 +225,7 @@ demuxes without decoding, so a 1.5 GB episode takes about fifteen seconds on
 the LAN. It needs `ffmpeg` on PATH.
 
 ```bash
-uv run --project backends/python python -m drive_sync.integrity "Let's Play"
+uv run --project backend python -m drive_sync.integrity "Let's Play"
 ```
 
 ```
@@ -289,7 +289,7 @@ touches; `syncplex drive` and the TUI import them lazily, so the image's
 ## Development
 
 ```bash
-cd backends/python
+cd backend
 uv sync              # one venv for everything, readable-utils included
 uv run pytest
 uv run ruff check .

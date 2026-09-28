@@ -1,7 +1,7 @@
 -- Core schema. Idempotent; applied by engine/bootstrap.py at startup
 -- (version-gated via syncplex.deploy_meta).
 --
--- These files live under backends/python/ rather than the repo-root deploy/
+-- These files live under backend/ rather than the repo-root deploy/
 -- because that directory is the docker build context — bootstrap has to be
 -- able to read them from inside the image.
 
