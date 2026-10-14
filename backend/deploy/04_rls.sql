@@ -3,6 +3,9 @@
 -- `app_role` for the app's own admin/user role. (`role` is not usable here —
 -- PostgREST has already consumed it for SET ROLE, so every caller's `role` is
 -- syncplex_user.) Idempotent: DROP/CREATE pairs throughout.
+-- Applied by engine/bootstrap.py at startup.
+-- Running this file by hand with psql might work, but it is not the intended
+-- use: change it here and let the app apply it.
 
 CREATE OR REPLACE FUNCTION syncplex.jwt_user_id() RETURNS uuid
 LANGUAGE plpgsql STABLE AS $$

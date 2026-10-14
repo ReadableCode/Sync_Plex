@@ -1,5 +1,7 @@
 -- Core schema. Idempotent; applied by engine/bootstrap.py at startup
 -- (version-gated via syncplex.deploy_meta).
+-- Running this file by hand with psql might work, but it is not the intended
+-- use: change it here and let the app apply it.
 --
 -- These files live under backend/ rather than the repo-root deploy/
 -- because that directory is the docker build context — bootstrap has to be
