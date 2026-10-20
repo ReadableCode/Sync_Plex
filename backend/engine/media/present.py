@@ -1,5 +1,5 @@
 """Presentation helpers both UIs share: how a status, a season, a server's
-stats, a title's facts, an add's cost and the approval picker's options are
+stats, a title's facts, an add's cost and the approval picker's choices are
 worded. Pure functions on the models, no framework; the web app and the TUI
 each wrap the words in their own styling."""
 
@@ -82,11 +82,17 @@ def headroom_line(estimate: int, free: int | None, instance_name: str) -> tuple[
     return f"{format_bytes(free)} free on {short(instance_name)}", "text-xs muted"
 
 
-def server_option(name: str, status, estimate: int, free: int | None) -> str:
-    """Label for the approval picker: the cost of putting the title here, or why it is moot."""
+def server_choice(status, estimate: int, free: int | None) -> tuple[str, str, bool]:
+    """The approval picker's line under a server name: (text, css class, pickable).
+
+    The cost of putting the title there and what that leaves, a warning when
+    it would not fit, or the title's presence when the server already has it
+    and the pick is moot."""
     if status is not None and status.state != PresenceState.NOT_PRESENT:
-        return f"{name} · {badge(status)[0]}"
-    label = f"{name} · ~{format_bytes(estimate)}"
-    if free is not None:
-        label += f" · {format_bytes(free)} free"
-    return label
+        label, css = badge(status)
+        return f"{label} · already here", css, False
+    if free is None:
+        return f"~{format_bytes(estimate)} to add", "muted", True
+    if estimate > free:
+        return f"⚠ needs ~{format_bytes(estimate)}, {format_bytes(free)} free", "state-partial", True
+    return f"~{format_bytes(estimate)} to add · {format_bytes(free)} free", "muted", True

@@ -36,7 +36,7 @@ from ..media.present import badge as _badge
 from ..media.present import headroom_line as _headroom_line
 from ..media.present import meta_line as _meta_line
 from ..media.present import season_chip as _season_chip
-from ..media.present import server_option as _server_option
+from ..media.present import server_choice as _server_choice
 from ..media.present import short as _short
 from ..media.present import stats_line as _stats_line
 from ..media.requests import MediaRequest, RequestStatus, RequestStore, fulfill_request
@@ -134,6 +134,22 @@ body, body.body--dark {
 .q-field__native::placeholder { color: var(--muted); }
 
 .q-notification { border-radius: var(--radius); }
+
+/* request card server picker: one tappable row per server, the pick
+   outlined green, a server that already has the title dimmed */
+.server-choice {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 8px 12px;
+  cursor: pointer;
+}
+.server-choice.picked { border-color: var(--green); }
+.server-choice.picked .sc-name { color: var(--green-bright); }
+.server-choice.moot { cursor: default; opacity: 0.6; }
+
+/* header: the links drop under the brand when the row is too narrow */
+.nav-brand { flex: 1 0 auto; white-space: nowrap; }
 
 /* storage meter: hairline track, green fill, red when nearly full */
 .meter {
@@ -301,17 +317,18 @@ def run_web(host: str = "127.0.0.1", port: int = 8788) -> None:  # noqa: C901 ‚Ä
 
     def _nav(user: User) -> None:
         """Shared header: brand, requests link (pending count), user, logout."""
-        with ui.row().classes("items-center w-full no-wrap gap-3"):
-            with ui.link(target="/").classes("nav-link grow"):
+        with ui.row().classes("items-center w-full gap-x-3 gap-y-1"):
+            with ui.link(target="/").classes("nav-link nav-brand"):
                 ui.html('<span class="brand-prompt">‚ùØ</span> syncplex media').classes("text-2xl font-bold")
             count = (
                 _requests(user).pending_count()
                 if user.is_admin
                 else len(_requests(user).list(status=RequestStatus.PENDING, requested_by=user.username))
             )
-            ui.link(f"requests ({count})" if count else "requests", "/requests").classes("nav-link text-sm shrink-0")
-            ui.label(f"{user.username} ¬∑ {user.role}").classes("text-xs muted shrink-0")
-            ui.button("logout", on_click=_logout).props("flat dense no-caps size=sm color=info")
+            with ui.row().classes("items-center no-wrap gap-3"):
+                ui.link(f"requests ({count})" if count else "requests", "/requests").classes("nav-link text-sm")
+                ui.label(f"{user.username} ¬∑ {user.role}").classes("text-xs muted")
+                ui.button("logout", on_click=_logout).props("flat dense no-caps size=sm color=info")
 
     @ui.page("/login")
     def login_page(request: Request) -> None:
@@ -672,13 +689,40 @@ def run_web(host: str = "127.0.0.1", port: int = 8788) -> None:  # noqa: C901 ‚Ä
                     ui.label("checking servers‚Ä¶").classes("text-xs muted")
 
                 instance_names = [i.name for i in config.arr_instances(r.media_type.value)]
-                default = instance_names[0] if instance_names else None
+                # The picker: one tappable row per server, name over what the
+                # add would cost there. `lines` is filled once the servers answer.
+                pick: dict = {
+                    "value": instance_names[0] if instance_names else None,
+                    "chosen": False,  # the admin tapped one, so the fill keeps it
+                    "lines": {},
+                }
+
+                def choose(name: str) -> None:
+                    pick["value"], pick["chosen"] = name, True
+                    paint_picker()
+
+                def paint_picker() -> None:
+                    picker.clear()
+                    with picker:
+                        ui.label("add to").classes("text-xs muted")
+                        for name in instance_names:
+                            text, css, pickable = pick["lines"].get(name, ("checking‚Ä¶", "muted", True))
+                            picked = name == pick["value"]
+                            row_classes = "server-choice w-full" + (" picked" if picked else "")
+                            row = ui.element("div").classes(row_classes if pickable else row_classes + " moot")
+                            if pickable:
+                                row.on("click", lambda name=name: choose(name))
+                            with row:
+                                ui.label(("‚óè " if picked else "‚óã ") + name).classes("text-sm font-bold sc-name")
+                                ui.label(text).classes(f"text-xs {css} pl-4")
 
                 async def do_approve() -> None:
-                    if not target.value:
+                    if not pick["value"]:
                         ui.notify("pick a server first", color="warning", position="top")
                         return
-                    add_result = await fulfill_request(_requests(user), request.id, target.value, user.username, config)
+                    add_result = await fulfill_request(
+                        _requests(user), request.id, pick["value"], user.username, config
+                    )
                     ui.notify(
                         add_result.message,
                         color="positive" if add_result.ok else "negative",
@@ -708,12 +752,9 @@ def run_web(host: str = "127.0.0.1", port: int = 8788) -> None:  # noqa: C901 ‚Ä
                             ui.button("deny", on_click=confirm).props("color=negative no-caps")
                     deny_dialog.open()
 
+                picker = ui.column().classes("w-full gap-2")
+                paint_picker()
                 with ui.row().classes("items-center w-full no-wrap gap-2"):
-                    target = (
-                        ui.select(instance_names, value=default, label="server")
-                        .props("outlined dense options-dense")
-                        .classes("grow")
-                    )
                     ui.button("approve", on_click=do_approve).props("color=positive text-color=dark no-caps")
                     ui.button("deny", on_click=do_deny).props("flat no-caps color=info")
                 if not instance_names:
@@ -737,8 +778,6 @@ def run_web(host: str = "127.0.0.1", port: int = 8788) -> None:  # noqa: C901 ‚Ä
                 if generation != state["generation"]:
                     return  # the queue re-rendered while we were fetching
 
-                options: dict[str, str] = {}
-                best: tuple[int, str] | None = None  # (free bytes, instance) with the most room to spare
                 detail_area.clear()
                 with detail_area:
                     if aggregated.statuses:
@@ -746,23 +785,26 @@ def run_web(host: str = "127.0.0.1", port: int = 8788) -> None:  # noqa: C901 ‚Ä
                     else:
                         ui.label("no server could look this title up").classes("text-xs state-error")
                     _render_plex(aggregated)
-                    for name in instance_names:
-                        status = aggregated.status_for(name)
-                        health = state["health"].get(name)
-                        estimate = estimate_add_bytes(aggregated, health)
-                        free = health.disk_free_bytes if health else None
-                        options[name] = _server_option(name, status, estimate, free)
-                        if status is not None and status.state != PresenceState.NOT_PRESENT:
-                            continue
-                        headroom = _headroom_line(estimate, free, name)
-                        if headroom:
-                            ui.label(headroom[0]).classes(headroom[1])
-                        if free is not None and estimate <= free and (best is None or free > best[0]):
-                            best = (free, name)
+                best: tuple[int, str] | None = None  # (free bytes, instance) with the most room to spare
+                for name in instance_names:
+                    status = aggregated.status_for(name)
+                    health = state["health"].get(name)
+                    estimate = estimate_add_bytes(aggregated, health)
+                    free = health.disk_free_bytes if health else None
+                    pick["lines"][name] = _server_choice(status, estimate, free)
+                    if (
+                        pick["lines"][name][2]
+                        and free is not None
+                        and estimate <= free
+                        and (best is None or free > best[0])
+                    ):
+                        best = (free, name)
                 # Preselect the absent server with the most room, unless the
-                # admin already changed the pick while the servers were answering.
-                value = best[1] if best and target.value == default else target.value
-                target.set_options(options, value=value)
+                # admin already tapped one while the servers were answering.
+                if not pick["chosen"]:
+                    pickable = [name for name in instance_names if pick["lines"][name][2]]
+                    pick["value"] = best[1] if best else (pickable[0] if pickable else None)
+                paint_picker()
 
             return fill
 

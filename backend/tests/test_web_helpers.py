@@ -2,7 +2,7 @@
 search dialog and the admin request queue print about size and headroom."""
 
 from engine.media.models import InstanceStatus, MediaSearchResult, MediaType, PresenceState
-from engine.web.app import _headroom_line, _meta_line, _server_option
+from engine.web.app import _headroom_line, _meta_line, _server_choice
 
 
 def test_meta_line_skips_blanks():
@@ -29,14 +29,25 @@ def test_headroom_line_is_silent_without_a_disk_reading():
     assert _headroom_line(40_000_000_000, None, "sonarr-behemoth") is None
 
 
-def test_server_option_prices_an_absent_server():
+def test_server_choice_prices_an_absent_server():
     absent = InstanceStatus(instance="sonarr-behemoth", state=PresenceState.NOT_PRESENT)
-    assert _server_option("sonarr-behemoth", absent, 40_000_000_000, 1_200_000_000_000) == (
-        "sonarr-behemoth · ~40.0 GB · 1.2 TB free"
+    assert _server_choice(absent, 40_000_000_000, 1_200_000_000_000) == (
+        "~40.0 GB to add · 1.2 TB free",
+        "muted",
+        True,
     )
-    assert _server_option("sonarr-behemoth", None, 40_000_000_000, None) == "sonarr-behemoth · ~40.0 GB"
+    assert _server_choice(None, 40_000_000_000, None) == ("~40.0 GB to add", "muted", True)
 
 
-def test_server_option_marks_a_server_that_already_has_it():
+def test_server_choice_warns_when_it_will_not_fit():
+    absent = InstanceStatus(instance="sonarr-behemoth", state=PresenceState.NOT_PRESENT)
+    assert _server_choice(absent, 40_000_000_000, 5_000_000_000) == (
+        "⚠ needs ~40.0 GB, 5.0 GB free",
+        "state-partial",
+        True,
+    )
+
+
+def test_server_choice_rules_out_a_server_that_already_has_it():
     present = InstanceStatus(instance="sonarr-behemoth", state=PresenceState.MONITORED_COMPLETE)
-    assert _server_option("sonarr-behemoth", present, 40_000_000_000, 1_000) == "sonarr-behemoth · ● complete"
+    assert _server_choice(present, 40_000_000_000, 1_000) == ("● complete · already here", "state-complete", False)
