@@ -1,13 +1,14 @@
-"""Sessions and JWT transport; password verification is delegated to the
-shared postgrest-auth service.
+"""Sessions and JWT transport; password verification runs in-process through
+the postgrest-auth library.
 
-Login POSTs the credentials to that service, which owns the KDF policy
-(argon2id), the per-username + per-IP lockout, and the no-enumeration timing
-defense — one copy for the whole fleet instead of one per app. What comes back
-is an HS256 JWT signed with the shared PostgREST secret, carrying
-role=syncplex_user plus user_id/username/app_role/iat. That single token is
-both the session credential and the Bearer token every PostgREST call uses, so
-RLS scopes the request queue off the same claims the login produced.
+Login checks the password against syncplex.users over the superuser connection
+with postgrest_auth.login, which owns the KDF policy (argon2id, legacy bcrypt
+rehashed on login), the per-username + per-IP lockout, and the no-enumeration
+timing defense. What comes back is an HS256 JWT signed with the shared
+PostgREST secret, carrying role=syncplex_user plus
+user_id/username/app_role/iat. That single token is both the session
+credential and the Bearer token every PostgREST call uses, so RLS scopes the
+request queue off the same claims the login produced.
 
 The token is held in NiceGUI's server-side session storage, exactly where the
 username used to live, so nothing about the browser-side cookie changed.
@@ -23,8 +24,9 @@ import os
 import secrets
 from datetime import UTC, datetime, timedelta
 
-import httpx
 import jwt
+import postgrest_auth
+import psycopg
 
 from .. import config
 from .users import User, UserStore
@@ -32,23 +34,13 @@ from .users import User, UserStore
 SESSION_MAX_AGE_SECONDS = 30 * 24 * 3600
 
 
-class AuthServiceError(Exception):
-    """Login rejected or the service unreachable; carries the HTTP status."""
+class LoginError(Exception):
+    """Login rejected or unavailable; carries the HTTP status."""
 
     def __init__(self, status_code: int, detail: str):
         super().__init__(detail)
         self.status_code = status_code
         self.detail = detail
-
-
-_client: httpx.Client | None = None
-
-
-def _http() -> httpx.Client:
-    global _client
-    if _client is None:
-        _client = httpx.Client(timeout=config.HTTP_TIMEOUT)
-    return _client
 
 
 def session_secret() -> str:
@@ -59,44 +51,35 @@ def session_secret() -> str:
     return configured or secrets.token_urlsafe(32)
 
 
-def login_via_service(username: str, password: str, ip: str) -> str:
-    """Exchange credentials for a session JWT at the shared auth service.
+def login(username: str, password: str, ip: str) -> str:
+    """Exchange credentials for a session JWT.
 
-    The viewer's IP is forwarded so the service's per-IP lockout counts the
-    browser rather than this container. ttl_hours keeps the 30-day session
-    policy this app has always had.
+    The viewer's IP feeds the per-IP lockout. ttl_hours keeps the 30-day
+    session policy this app has always had.
     """
     try:
-        resp = _http().post(
-            f"{config.AUTH_URL}/token",
-            json={
-                "schema": config.APP_SCHEMA,
-                "username": username,
-                "password": password,
-                "ttl_hours": SESSION_MAX_AGE_SECONDS // 3600,
-            },
-            headers={"X-Forwarded-For": ip} if ip else {},
+        return postgrest_auth.login(
+            lambda: psycopg.connect(config.superuser_dsn()),
+            config.APP_SCHEMA,
+            username,
+            password,
+            jwt_secret=config.JWT_SECRET,
+            client_ip=ip or None,
+            ttl_hours=SESSION_MAX_AGE_SECONDS // 3600,
         )
-    except httpx.HTTPError as exc:
-        raise AuthServiceError(503, "login service unavailable") from exc
-    if resp.status_code == 200:
-        return resp.json()["token"]
-    if resp.status_code == 401:
-        raise AuthServiceError(401, "Invalid username or password")
-    if resp.status_code == 429:
-        try:
-            detail = resp.json().get("detail", "Too many failed attempts — try again shortly")
-        except ValueError:
-            detail = "Too many failed attempts — try again shortly"
-        raise AuthServiceError(429, detail)
-    raise AuthServiceError(503, "login service unavailable")
+    except postgrest_auth.InvalidCredentials:
+        raise LoginError(401, "Invalid username or password") from None
+    except postgrest_auth.LoginLocked as exc:
+        raise LoginError(429, str(exc)) from None
+    except psycopg.Error as exc:
+        raise LoginError(503, "login unavailable") from exc
 
 
 def attempt_login(username: str, password: str, ip: str) -> tuple[str | None, str]:
     """One login attempt. Returns (token, "") on success, (None, reason) otherwise."""
     try:
-        return login_via_service(username.strip().lower(), password, ip), ""
-    except AuthServiceError as exc:
+        return login(username.strip().lower(), password, ip), ""
+    except LoginError as exc:
         return None, exc.detail
 
 

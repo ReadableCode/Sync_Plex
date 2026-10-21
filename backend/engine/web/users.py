@@ -7,16 +7,16 @@ Two roles exist:
 - ``user``   — search everything, but can only *request* titles; nothing is
   downloaded until an admin approves the request.
 
-Password *verification* is not here. It lives in the shared postgrest-auth
-service (see ``engine.web.auth``), which owns the KDF policy, the lockout, and
-the no-enumeration timing defense for every app at once. This store manages
-accounts (the ``syncplex users`` CLI) and answers the per-request session check.
+Password *verification* is not here. At login it is the postgrest-auth
+library's (see ``engine.web.auth``), which owns the KDF policy, the lockout, and
+the no-enumeration timing defense. This store manages accounts (the
+``syncplex users`` CLI) and answers the per-request session check.
 
-Hashes stay argon2id and are written by this module when an account is created
-or its password changed, so nothing about the stored credentials changed in the
-move off users.json. The table is REVOKEd from the PostgREST roles
-(deploy/03_secure_users.sql); only this process, on the superuser connection,
-can read it.
+Hashes stay argon2id and are written by this module, with the library's
+hash_password, when an account is created or its password changed, so nothing
+about the stored credentials changed in the move off users.json. The table is
+REVOKEd from the PostgREST roles (deploy/03_secure_users.sql); only this
+process, on the superuser connection, can read it.
 """
 
 from __future__ import annotations
@@ -25,8 +25,8 @@ import re
 import time
 from datetime import datetime
 
+import postgrest_auth
 import psycopg
-from argon2 import PasswordHasher
 from pydantic import BaseModel
 
 from .. import config
@@ -36,8 +36,6 @@ ROLE_USER = "user"
 ROLES = (ROLE_ADMIN, ROLE_USER)
 
 _USERNAME_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{0,31}$")
-
-_hasher = PasswordHasher()  # argon2id, library defaults (64 MiB, t=3, p=4)
 
 MIN_PASSWORD_LENGTH = 10
 
@@ -141,7 +139,9 @@ class UserStore:
 
     def add(self, username: str, password: str, role: str = ROLE_USER, display_name: str = "") -> User:
         validate_password(password)
-        return self.add_prehashed(username, _hasher.hash(password), role=role, display_name=display_name)
+        return self.add_prehashed(
+            username, postgrest_auth.hash_password(password), role=role, display_name=display_name
+        )
 
     def add_prehashed(
         self,
@@ -185,7 +185,7 @@ class UserStore:
         self._update(
             username,
             "SET password_hash = %s, password_changed_at = now()",
-            (_hasher.hash(password),),
+            (postgrest_auth.hash_password(password),),
         )
 
     def set_disabled(self, username: str, disabled: bool) -> None:
@@ -223,7 +223,7 @@ class UserStore:
 
 
 def hash_password(password: str) -> str:
-    return _hasher.hash(password)
+    return postgrest_auth.hash_password(password)
 
 
 def db_reachable() -> tuple[bool, str]:

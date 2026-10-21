@@ -1,6 +1,7 @@
 """The TUI's identity (engine/media/tui/operator): the token it mints is the
-one postgrest-auth would issue for an admin, signed with the same secret, and
-the queue stays off with a reason when .env lacks a piece. No network."""
+one login (postgrest_auth.mint_token) would issue for an admin, signed with
+the same secret, and the queue stays off with a reason when .env lacks a
+piece. No network."""
 
 import jwt
 import pytest

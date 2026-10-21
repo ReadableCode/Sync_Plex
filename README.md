@@ -78,8 +78,8 @@ it needs the folder.
 `syncplex` is the media remote, the request queue and drive sync in one
 terminal app. Nobody signs in: whoever holds the `.env` is the admin. The
 queue calls carry a token the TUI mints itself from `POSTGREST_JWT_SECRET`
-(the secret the shared auth service signs the web's tokens with) under the
-name in `SYNCPLEX_OPERATOR`, so PostgREST and its row-level security see a
+(PostgREST's JWT secret, the one the web's login signs its tokens with) under
+the name in `SYNCPLEX_OPERATOR`, so PostgREST and its row-level security see a
 logged-in admin and every approval is recorded under that name. Without
 those keys the queue screen is off, with a warning naming what is missing;
 search and add still work. Under the header, a strip shows every server: up
@@ -268,11 +268,12 @@ comes from its stderr, never from the status.
 ## Web UI
 
 Own login page (no Authelia in front); TLS comes from the reverse proxy.
-Passwords are verified by the shared `postgrest-auth` service, which owns the
-argon2id policy and the per-username/per-IP lockout for every app at once. The
-JWT it returns is both the session credential and the Bearer token for
-PostgREST, so row-level security scopes the request queue off the same claims
-the login produced.
+Passwords are verified in-process by the
+[postgrest-auth](https://github.com/ReadableCode/postgrest-auth) library against
+`syncplex.users`; it owns the argon2id policy and the per-username/per-IP
+lockout. The JWT it returns is both the session credential and the Bearer
+token for PostgREST, so row-level security scopes the request queue off the
+same claims the login produced.
 
 Accounts and the request queue live in the `syncplex` schema of the shared
 `apps` Postgres database. There is no file fallback: if Postgres is

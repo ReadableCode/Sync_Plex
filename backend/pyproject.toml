@@ -13,6 +13,7 @@ dependencies = [
     "argon2-cffi>=25.1.0",
     "psycopg[binary]>=3.2",
     "pyjwt>=2.10",
+    "postgrest-auth",
 ]
 
 [project.scripts]
@@ -71,4 +72,5 @@ default-groups = ["dev", "drive-sync"]
 
 [tool.uv.sources]
 readable-utils = { git = "https://github.com/ReadableCode/readable_utils.git", tag = "v0.3.3" }
+postgrest-auth = { git = "https://github.com/ReadableCode/postgrest-auth.git", tag = "v0.2.0" }
 

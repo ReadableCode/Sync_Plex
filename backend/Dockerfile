@@ -2,10 +2,12 @@ FROM python:3.14-slim
 
 WORKDIR /app
 
+# git: uv fetches the postgrest-auth dependency from its git tag
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
     build-essential \
     curl \
+    git \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
@@ -14,8 +16,9 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 # installs the project so the `syncplex` console script exists.
 COPY pyproject.toml uv.lock ./
 
-# --no-default-groups excludes dev AND the drive-sync group (whose
-# readable-utils dep lives on a private git remote this build can't reach).
+# --no-default-groups excludes dev AND the drive-sync group: the web image
+# never imports either (drive-sync carries the drive sync and the TUI,
+# including the readable-utils git dependency).
 RUN uv sync --frozen --no-default-groups --no-install-project
 
 COPY engine/ ./engine/

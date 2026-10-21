@@ -2,7 +2,7 @@
 # Docker/docker_compose_projects.yaml via `include:`; the include entry sets
 # project_directory to this repo's root, so relative paths resolve from here.
 # Talks to sonarr/radarr/plex over the LAN, and to the shared postgres /
-# postgrest / auth services by compose service name. The inventory is mounted
+# postgrest services by compose service name. The inventory is mounted
 # read-only from the personal_credentials repo, and API keys/tokens/database
 # credentials come from the same repo's personal.env via env_file (same file
 # this repo's .env symlinks to) — including SYNCPLEX_SESSION_SECRET, which
@@ -27,7 +27,6 @@ services:
       SYNCPLEX_DATA_DIR: /data
       APP_SCHEMA: syncplex
       POSTGREST_URL: http://postgrest:3000
-      AUTH_URL: http://auth:8000
       POSTGRES_URL: postgres
       POSTGRES_PORT: "5432"
       POSTGRES_DB: apps
@@ -36,7 +35,6 @@ services:
     depends_on:
       - postgres
       - postgrest
-      - auth
     volumes:
       - ../personal_credentials/personal_hosts.json:/config/hosts.json:ro
       - /home/jason/docker_app_data/syncplex:/data

@@ -12,9 +12,9 @@ Properties that matter:
 
 - ``password_hash`` is copied as an opaque string. Never parsed, never
   rehashed. Whatever verified a login before verifies it after.
-- Before writing anything, every stored hash is checked to be one the shared
-  auth service can actually read (``preflight_hashes``). Nobody gets a
-  password reset, so a hash the verifier cannot parse would mean a locked-out
+- Before writing anything, every stored hash is checked to be one login (the
+  postgrest-auth library) can actually read (``preflight_hashes``). Nobody gets
+  a password reset, so a hash the verifier cannot parse would mean a locked-out
   account, and that must stop the import rather than be discovered at login.
 - ``created_at`` and ``password_changed_at`` come from the JSON, not from
   now(). Overwriting password_changed_at would invalidate every live session.
@@ -41,7 +41,7 @@ from argon2.exceptions import InvalidHashError, VerificationError, VerifyMismatc
 from engine import bootstrap, config
 from engine.web.users import UserStore, db_reachable
 
-_hasher = PasswordHasher()  # same construction as engine.web.users and postgrest-auth
+_hasher = PasswordHasher()  # same construction as postgrest_auth's passwords module
 
 
 def _load(path: Path, key: str) -> list[dict]:
@@ -52,16 +52,17 @@ def _load(path: Path, key: str) -> list[dict]:
 
 
 def preflight_hashes(rows: list[dict]) -> list[str]:
-    """Which accounts, if any, the auth service would fail to verify.
+    """Which accounts, if any, login would fail to verify.
 
     No passwords are needed. Verifying against a deliberately wrong password
     separates the two outcomes that matter: VerifyMismatchError means the hash
     parsed and the KDF ran, so the real password will work; InvalidHashError
     means the verifier cannot read it and that account would be locked out.
 
-    Mirrors postgrest-auth/security.py:verify_password — bcrypt hashes are
-    dispatched by their ``$2`` prefix and rehashed to argon2id on first
-    successful login, so they are fine here too and are only reported.
+    Mirrors postgrest_auth.verify_password (its passwords module), which login
+    verifies with — bcrypt hashes are dispatched by their ``$2`` prefix and
+    rehashed to argon2id on first successful login, so they are fine here too
+    and are only reported.
     """
     unreadable = []
     for row in rows:
@@ -74,7 +75,7 @@ def preflight_hashes(rows: list[dict]) -> list[str]:
             _hasher.verify(stored, "a-deliberately-wrong-password-for-preflight")
             unreadable.append(f"{username}: wrong password verified — refusing to trust this hash")
         except VerifyMismatchError:
-            print(f"  ok {username}: argon2id, readable by the auth service")
+            print(f"  ok {username}: argon2id, readable at login")
         except (InvalidHashError, VerificationError) as exc:
             unreadable.append(f"{username}: {type(exc).__name__} — the verifier cannot read this hash")
     return unreadable
@@ -196,7 +197,7 @@ def main() -> int:
 
     users_before, requests_before = _count("users"), _count("requests")
 
-    print("\npreflight — can the auth service read every stored hash?")
+    print("\npreflight — can login read every stored hash?")
     unreadable = preflight_hashes(user_rows)
     if unreadable:
         print("\nABORTING — these accounts would be locked out, and nobody gets a reset:", file=sys.stderr)

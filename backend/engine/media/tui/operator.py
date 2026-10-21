@@ -2,10 +2,10 @@
 signs in.
 
 The request queue is reached through PostgREST, which authorises every call
-by the JWT it carries. The web UI gets that token from the shared auth
-service in exchange for a password; the TUI mints the same token itself,
-signed with POSTGREST_JWT_SECRET from .env, the secret postgrest-auth signs
-with. The claims are the ones the service would issue for an admin (the
+by the JWT it carries. The web UI gets that token from its in-process login
+(the postgrest-auth library) in exchange for a password; the TUI mints the
+same token itself, signed with POSTGREST_JWT_SECRET from .env, PostgREST's
+JWT secret. The claims are the ones login would issue for an admin (the
 admin policy in deploy/04_rls.sql keys on app_role) minus user_id, which
 only a requester's own rows need. PostgREST and row-level security therefore
 see a logged-in admin, and the queue code is the code the web runs.

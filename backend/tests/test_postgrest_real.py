@@ -1,8 +1,9 @@
-"""Real auth-service and PostgREST round trip — the production path, end to end.
+"""Real login and PostgREST round trip — the production path, end to end.
 
-A throwaway account logs in through the REAL shared auth service, so this
-exercises postgrest-auth verify (argon2id) -> JWT claims -> in-app session
-validation -> one GET through the REAL PostgREST with the token.
+A throwaway account logs in through the real login path, so this exercises
+postgrest-auth library verify (argon2id) against the real users table -> JWT
+claims -> in-app session validation -> one GET through the REAL PostgREST with
+the token.
 
 This suite runs against the shared apps Postgres, which is the database the
 household's real request queue lives in, so a test may only ever create and
@@ -27,11 +28,11 @@ PW = "postgrest-roundtrip-pw"
 
 def _login(users: UserStore, username: str) -> RequestStore:
     try:
-        token = auth.login_via_service(username, PW, ip="")
-    except auth.AuthServiceError as exc:
-        raise AssertionError(f"auth service login failed — red, not skipped: {exc.detail}") from exc
+        token = auth.login(username, PW, ip="")
+    except auth.LoginError as exc:
+        raise AssertionError(f"login failed — red, not skipped: {exc.detail}") from exc
     user = auth.validate_token(token, users)
-    assert user is not None, "service token must validate in-app"
+    assert user is not None, "login token must validate in-app"
     return RequestStore(token, user.id)
 
 

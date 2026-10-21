@@ -7,6 +7,7 @@ version-gated bootstrap the app runs at startup (a no-op once converged).
 import uuid
 from datetime import UTC, datetime
 
+import postgrest_auth
 import psycopg
 import pytest
 from argon2 import PasswordHasher
@@ -44,7 +45,7 @@ def test_account_lifecycle(store, temp_username):
     assert user.username == temp_username
     assert user.role == "user"
     assert user.id
-    # argon2id at rest — the same string the shared auth service verifies
+    # argon2id at rest — the same string the postgrest-auth library verifies at login
     PasswordHasher().verify(store.get(temp_username).password_hash, PW)
 
     before = store.get(temp_username).password_changed_at
@@ -251,29 +252,23 @@ def test_rls_denies_everything_without_claims(two_accounts):
         conn.commit()
 
 
-def test_stored_hash_stays_verifiable_by_the_shared_auth_service(store, temp_username):
-    """Nobody gets a password reset, so a hash the auth service cannot read
-    means a locked-out account.
+def test_stored_hash_stays_verifiable_at_login(store, temp_username):
+    """Nobody gets a password reset, so a hash login cannot read means a
+    locked-out account.
 
-    postgrest-auth verifies with a plain ``argon2.PasswordHasher()`` after
-    dispatching on the ``$`` prefix (postgrest-auth/security.py). Construct one
-    the same way and check it can both read the stored hash and match the real
-    password — and that check_needs_rehash is False, so the parameters agree
-    and first login does not rewrite the row.
+    Login verifies with the postgrest-auth library, which dispatches on the
+    ``$`` prefix (postgrest_auth.verify_password). Check that it can both read
+    the stored hash and match the real password, and that needs_rehash is
+    False, so the parameters agree and first login does not rewrite the row.
     """
-    from argon2.exceptions import VerifyMismatchError
-
     password = "the-password-a-friend-already-has"
     original = hash_password(password)
     store.add_prehashed(temp_username, original)
 
     stored = store.get(temp_username).password_hash
     assert stored == original, "hash must survive the round trip byte-for-byte"
-    assert stored.startswith("$argon2id$"), "prefix is how the service picks the verifier"
+    assert stored.startswith("$argon2id$"), "prefix is how login picks the verifier"
 
-    service_hasher = PasswordHasher()  # exactly how postgrest-auth builds its own
-    assert service_hasher.verify(stored, password) is True
-    with pytest.raises(VerifyMismatchError):
-        # Not InvalidHashError: the hash parses, it is only the password that is wrong.
-        service_hasher.verify(stored, "a-deliberately-wrong-password")
-    assert service_hasher.check_needs_rehash(stored) is False
+    assert postgrest_auth.verify_password(password, stored) is True
+    assert postgrest_auth.verify_password("a-deliberately-wrong-password", stored) is False
+    assert postgrest_auth.needs_rehash(stored) is False

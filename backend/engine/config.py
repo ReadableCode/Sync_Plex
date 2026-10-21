@@ -87,7 +87,6 @@ POSTGRES_USER = _env("POSTGRES_USER")
 POSTGRES_PASSWORD = _env("POSTGRES_PASSWORD")
 
 POSTGREST_URL = _env("POSTGREST_URL").rstrip("/")
-AUTH_URL = _env("AUTH_URL", "https://auth.tinkernet.me").rstrip("/")
 JWT_SECRET = _env("POSTGREST_JWT_SECRET") or _env("JWT_SECRET")
 
 # The TUI acts as this admin without signing in (engine/media/tui/operator.py

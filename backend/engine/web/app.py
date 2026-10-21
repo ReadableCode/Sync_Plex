@@ -8,7 +8,8 @@ onto them per page.
 
 Authentication is built in (this app used to sit behind Authelia; it no
 longer needs to): argon2id accounts from `syncplex users` (engine/web/users),
-server-side sessions + login throttling (engine/web/auth), and two roles —
+server-side sessions and in-process login (engine/web/auth, whose
+postgrest-auth library call also applies the lockout), and two roles —
 admins add titles directly and work the approval queue at /requests; users
 can only file requests there (engine/media/requests).
 """
@@ -338,7 +339,7 @@ def run_web(host: str = "127.0.0.1", port: int = 8788) -> None:  # noqa: C901 �
             return
 
         async def try_login() -> None:
-            # io_bound keeps the auth-service round trip off the event loop
+            # io_bound keeps the password check (an argon2 verify and a DB round trip) off the event loop
             result = await run.io_bound(
                 attempt_login, username_box.value or "", password_box.value or "", _client_ip(request)
             )

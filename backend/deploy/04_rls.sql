@@ -1,6 +1,7 @@
 -- Row-level security on the request queue, keyed on the JWT claims that
--- postgrest-auth mints (postgrest-auth/main.py): `user_id` for identity and
--- `app_role` for the app's own admin/user role. (`role` is not usable here —
+-- login mints via the postgrest-auth library (postgrest_auth.mint_token):
+-- `user_id` for identity and `app_role` for the app's own admin/user role.
+-- (`role` is not usable here —
 -- PostgREST has already consumed it for SET ROLE, so every caller's `role` is
 -- syncplex_user.) Idempotent: DROP/CREATE pairs throughout.
 -- Applied by engine/bootstrap.py at startup.
