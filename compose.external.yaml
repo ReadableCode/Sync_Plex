@@ -1,0 +1,39 @@
+# The Sync_Plex web UI alone, against a Postgres and PostgREST you already
+# run. Use compose.yaml instead to get both bundled.
+#
+#   docker compose -f compose.external.yaml up --build
+#
+# Your Postgres needs the roles postgrest_authenticator (the login PostgREST
+# connects as) and web_anon, and your PostgREST must list syncplex in
+# PGRST_DB_SCHEMAS. The app creates its schema, its syncplex_user role and
+# its tables at startup over the superuser connection. Set these in .env:
+#   POSTGREST_URL, POSTGREST_JWT_SECRET (your PostgREST's JWT secret),
+#   POSTGRES_URL, POSTGRES_PORT, POSTGRES_DB, POSTGRES_USER, POSTGRES_PASSWORD,
+#   SYNCPLEX_SESSION_SECRET
+name: syncplex
+
+services:
+  syncplex-web:
+    build: ./backend
+    environment:
+      POSTGREST_URL: ${POSTGREST_URL:?set POSTGREST_URL in .env}
+      APP_SCHEMA: syncplex
+      POSTGREST_JWT_SECRET: ${POSTGREST_JWT_SECRET:?set POSTGREST_JWT_SECRET in .env}
+      POSTGRES_URL: ${POSTGRES_URL:?set POSTGRES_URL in .env}
+      POSTGRES_PORT: ${POSTGRES_PORT:-5432}
+      POSTGRES_DB: ${POSTGRES_DB:-apps}
+      POSTGRES_USER: ${POSTGRES_USER:?set POSTGRES_USER in .env}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      SYNCPLEX_SESSION_SECRET: ${SYNCPLEX_SESSION_SECRET:?set SYNCPLEX_SESSION_SECRET in .env}
+      SYNCPLEX_DATA_DIR: /data
+      NTFY_URL: ${NTFY_URL:-}
+      NTFY_USERNAME: ${NTFY_USERNAME:-}
+      NTFY_PASSWORD: ${NTFY_PASSWORD:-}
+    volumes:
+      - syncplex_data:/data
+    ports:
+      - "${SYNCPLEX_PORT:-8788}:8788"
+    restart: unless-stopped
+
+volumes:
+  syncplex_data:

@@ -21,7 +21,9 @@ keeping a travel drive in step with what is actually unwatched was a manual
 job.
 
 There are three front ends over the same code: a CLI for scripting, a
-terminal UI (Textual) and a web UI (NiceGUI).
+terminal UI (Textual) and a web UI (NiceGUI). The web UI is self-contained:
+`docker compose up --build` brings up the whole stack (Postgres, PostgREST
+and the app). See [Run it with Docker](#run-it-with-docker).
 
 ![The TUI media screen: one search across every instance](docs/screenshots/tui-media.png)
 
@@ -52,6 +54,66 @@ The repo also ships `cli/syncplex`, a bash wrapper that does the same. See
 
 Before the first run, set up the two config files described in
 [Configuration](#configuration).
+
+## Run it with Docker
+
+`compose.yaml` runs the web UI as a self-contained stack: Postgres,
+PostgREST and the app. Nothing else needs to be installed or running. Put
+four secrets in a `.env` file next to it (letters and digits only, since
+they end up in a connection URL and SQL):
+
+```sh
+printf 'POSTGRES_PASSWORD=%s\nPOSTGREST_DB_PASSWORD=%s\nPOSTGREST_JWT_SECRET=%s\nSYNCPLEX_SESSION_SECRET=%s\n' \
+    "$(openssl rand -hex 32)" "$(openssl rand -hex 32)" "$(openssl rand -hex 32)" "$(openssl rand -hex 32)" > .env
+docker compose up --build
+```
+
+Open http://localhost:8788. On its first start Postgres creates the two
+roles PostgREST connects with, and the app creates its own schema. Accounts
+and the request queue live in the `postgres_data` volume, NiceGUI's session
+files in `syncplex_data`. `SYNCPLEX_SESSION_SECRET` signs the session
+cookie, so a fixed one keeps everyone logged in across restarts. Optional
+`.env` keys: `SYNCPLEX_PORT` (default 8788), and `NTFY_URL`,
+`NTFY_USERNAME` and `NTFY_PASSWORD` for the admin push on new requests.
+
+There is no sign-up page. Create the first admin in the container (it
+prompts for the password, at least 10 characters):
+
+```sh
+docker compose exec syncplex-web syncplex users add <name> --role admin
+```
+
+The other `syncplex users` commands run the same way.
+
+Without an inventory the app starts and serves login, but there are no
+servers to search, so every search comes back empty (admins see a warning
+saying so). To use your own, put your `hosts.json` (see
+[Configuration](#configuration)) next to `compose.yaml` and add a
+`compose.override.yaml`, which `docker compose` loads automatically:
+
+```yaml
+services:
+  syncplex-web:
+    environment:
+      SYNCPLEX_HOSTS: /config/hosts.json
+      SONARR_NAS_API_KEY: ${SONARR_NAS_API_KEY}
+      PLEX_TOKEN: ${PLEX_TOKEN}
+    volumes:
+      - ./hosts.json:/config/hosts.json:ro
+```
+
+Every `api_key_env` your inventory names has to reach the container: list
+each one under `environment` like the two above and put its value in
+`.env`. The hostnames in the inventory are resolved from inside the
+container, so use LAN names or addresses, not `localhost`. If
+`SYNCPLEX_HOSTS` names a file that is not there, the app refuses to start
+rather than serving empty searches.
+
+Already running Postgres and PostgREST? `compose.external.yaml` runs the app
+alone against them; its header lists the settings and the two roles your
+Postgres needs. An override file is only loaded automatically next to
+`compose.yaml`, so name both there:
+`docker compose -f compose.external.yaml -f compose.override.yaml up --build`.
 
 ## Commands
 
@@ -126,9 +188,12 @@ it later would be a page over `make_plan` and `SyncRunner`, but the drive
 has to be attached to the machine running the code, which for the web is
 the server container, not the laptop the drive is plugged into.
 
-Repo root: `cli/syncplex` shell wrapper, `deploy/` (the web deployment's
-compose file), `.env` (a symlink into personal_credentials),
-`pyrightconfig.json` (points editors at `backend/.venv`).
+Repo root: `cli/syncplex` shell wrapper, `compose.yaml` (the
+self-contained web stack: Postgres, PostgREST and the app),
+`compose.external.yaml` (the app alone, against an existing Postgres and
+PostgREST), `deploy/` (the web deployment's compose file), `.env` (a
+symlink into personal_credentials), `pyrightconfig.json` (points editors at
+`backend/.venv`).
 
 ## Configuration
 

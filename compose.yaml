@@ -1,0 +1,94 @@
+# Self-contained Sync_Plex web UI: its own Postgres, PostgREST and the app in
+# one stack, so it runs with nothing else installed. Put four secrets in a
+# .env file next to this one (letters and digits only, see README "Run it
+# with Docker"), then:
+#
+#   docker compose up --build        and open http://localhost:8788
+#
+# On its first start Postgres creates the two roles PostgREST connects with
+# (postgrest_roles below); the app then creates its own schema at startup
+# (backend/engine/bootstrap.py). Accounts and the request queue live in the
+# postgres_data volume, NiceGUI's session files in syncplex_data.
+#
+# The media-server inventory is not part of this file: without one the app
+# starts and serves login, and every search comes back empty. README "Run it
+# with Docker" shows how to mount your own with a compose.override.yaml.
+#
+# compose.external.yaml runs the app alone against a Postgres and PostgREST
+# you already have. deploy/compose.elitedesk.yaml is the author's server.
+name: syncplex
+
+services:
+  postgres:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: apps
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    configs:
+      - source: postgrest_roles
+        target: /docker-entrypoint-initdb.d/00_postgrest_roles.sql
+    healthcheck:
+      # TCP, so it only passes once the first-start init has finished
+      test: ["CMD", "pg_isready", "-h", "localhost", "-U", "postgres", "-d", "apps"]
+      interval: 2s
+      timeout: 5s
+      retries: 60
+    restart: unless-stopped
+
+  postgrest:
+    image: postgrest/postgrest:v16.5
+    environment:
+      PGRST_DB_URI: postgres://postgrest_authenticator:${POSTGREST_DB_PASSWORD:?set POSTGREST_DB_PASSWORD in .env}@postgres:5432/apps
+      PGRST_DB_SCHEMAS: syncplex
+      PGRST_DB_ANON_ROLE: web_anon
+      PGRST_JWT_SECRET: ${POSTGREST_JWT_SECRET:?set POSTGREST_JWT_SECRET in .env (32+ characters)}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  syncplex-web:
+    build: ./backend
+    environment:
+      POSTGREST_URL: http://postgrest:3000
+      APP_SCHEMA: syncplex
+      # PostgREST's secret: login signs session tokens with it
+      POSTGREST_JWT_SECRET: ${POSTGREST_JWT_SECRET}
+      # superuser connection: login, `syncplex users` and the startup schema bootstrap
+      POSTGRES_URL: postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: apps
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      # signs the session cookie; without a fixed one every restart logs everyone out
+      SYNCPLEX_SESSION_SECRET: ${SYNCPLEX_SESSION_SECRET:?set SYNCPLEX_SESSION_SECRET in .env}
+      # NiceGUI's server-side session files
+      SYNCPLEX_DATA_DIR: /data
+      # optional: an ntfy push to admins when a user files a request
+      NTFY_URL: ${NTFY_URL:-}
+      NTFY_USERNAME: ${NTFY_USERNAME:-}
+      NTFY_PASSWORD: ${NTFY_PASSWORD:-}
+    volumes:
+      - syncplex_data:/data
+    ports:
+      - "${SYNCPLEX_PORT:-8788}:8788"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      postgrest:
+        condition: service_started
+    restart: unless-stopped
+
+configs:
+  postgrest_roles:
+    content: |
+      CREATE ROLE postgrest_authenticator LOGIN NOINHERIT PASSWORD '${POSTGREST_DB_PASSWORD}';
+      CREATE ROLE web_anon NOLOGIN;
+      GRANT web_anon TO postgrest_authenticator;
+
+volumes:
+  postgres_data:
+  syncplex_data:
