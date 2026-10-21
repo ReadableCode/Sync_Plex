@@ -1,11 +1,33 @@
 # Sync_Plex
 
-The household media app. Two things, one project:
+A self-hosted household media tool for people who run more than one Sonarr,
+Radarr or Plex server. It does two jobs in one Python project:
 
-1. **Media remote** — search and add shows/movies across every Sonarr, Radarr,
-   and Plex instance you run, from a CLI, a TUI, or a phone-friendly web UI.
-2. **Drive sync** — mirror the shows/movies you pick onto an external drive
-   (road trips, flights), pulling the files from the Plex server.
+1. **Media remote.** Search for a show or movie once and see its status on
+   every Sonarr, Radarr and Plex instance at the same time: which servers
+   have it, which seasons are complete, how big it is, whether Plex can play
+   it, and what adding it would cost against each server's free disk. Add it
+   to the server you pick. Family and friends can request titles through a
+   phone-friendly web UI; nothing downloads until an admin approves the
+   request and picks the server.
+2. **Drive sync.** Mirror a chosen set of shows and movies onto an external
+   drive for road trips and flights. Each drive carries a small config of
+   what it should hold (for shows, the next N unwatched episodes), and the
+   sync pulls the files from the Plex server and removes what is no longer
+   wanted.
+
+It exists because the stock Sonarr and Radarr UIs each see one instance, and
+keeping a travel drive in step with what is actually unwatched was a manual
+job.
+
+There are three front ends over the same code: a CLI for scripting, a
+terminal UI (Textual) and a web UI (NiceGUI).
+
+![The TUI media screen: one search across every instance](docs/screenshots/tui-media.png)
+
+![The TUI drive-sync screen: what a sync would get and remove](docs/screenshots/tui-drive-sync.png)
+
+The screenshots above use made-up servers and data.
 
 ## Quick start
 
@@ -14,22 +36,26 @@ syncplex                           # the TUI: search and add, the request queue 
 syncplex drive                     # the same TUI, opened on the drive-sync folder browser
 syncplex drive /Volumes/X/Media    # ... straight onto that drive
 syncplex search "severance"        # status on every instance, merged
-syncplex add "severance" --to sonarr-elitedesk
+syncplex add "severance" --to sonarr-main
 ```
 
-(`syncplex` is a shell function from my dotfiles that `uv run`s into this
-repo — nothing is installed on PATH, so it is not a bare command without it.
+`syncplex` is a shell function from my dotfiles that `uv run`s into this
+repo. Nothing is installed on PATH, so it is not a bare command without it.
 Without that function, or on Windows, run from the repo root:
 
 ```bash
 uv run --project backend syncplex ...
 ```
 
-See [Drive sync on Windows](#drive-sync) for the Windows specifics.)
+The repo also ships `cli/syncplex`, a bash wrapper that does the same. See
+[Drive sync on Windows](#drive-sync-on-windows) for the Windows specifics.
+
+Before the first run, set up the two config files described in
+[Configuration](#configuration).
 
 ## Commands
 
-All commands are flat — no nested groups except `users`.
+All commands are flat, with no nested groups except `users`.
 
 | Command | What it does |
 | --- | --- |
@@ -78,8 +104,8 @@ or down, latency, free disk, and how many requests are waiting.
 ## How it's put together
 
 One Python project at `backend`, two packages, one entry point
-(`syncplex`), no internal REST API — every UI imports the same code
-in-process:
+(`syncplex`), and no internal REST API: every UI imports the same code
+in-process.
 
 ```plaintext
 backend/
@@ -98,28 +124,28 @@ backend/
 free of any UI import; only `screens.py` knows Textual. A web front-end for
 it later would be a page over `make_plan` and `SyncRunner`, but the drive
 has to be attached to the machine running the code, which for the web is
-the container on elitedesk, not the laptop the drive is plugged into.
+the server container, not the laptop the drive is plugged into.
 
-Repo root: `cli/syncplex` shell wrapper, `deploy/compose.elitedesk.yaml`
-(web deployment), `.env` → symlink into personal_credentials,
+Repo root: `cli/syncplex` shell wrapper, `deploy/` (the web deployment's
+compose file), `.env` (a symlink into personal_credentials),
 `pyrightconfig.json` (points editors at `backend/.venv`).
 
 ## Configuration
 
 Two files, both living in the sibling `personal_credentials` repo:
 
-- **`personal_hosts.json`** — the inventory. Each host lists the services it offers;
-  adding another Sonarr/Radarr/Plex is config-only:
+- **`personal_hosts.json`**: the inventory. Each host lists the services it
+  offers; adding another Sonarr/Radarr/Plex is config-only:
 
   ```json
   {
     "hosts": [
       {
-        "name": "behemoth",
-        "hostname": "192.168.86.31",
+        "name": "nas",
+        "hostname": "nas.lan",
         "services": [
-          { "type": "sonarr", "name": "sonarr-behemoth", "port": 8989, "api_key_env": "SONARR_BEHEMOTH_API_KEY" },
-          { "type": "plex", "name": "plex-behemoth", "port": 32400, "api_key_env": "PLEX_TOKEN" }
+          { "type": "sonarr", "name": "sonarr-nas", "port": 8989, "api_key_env": "SONARR_NAS_API_KEY" },
+          { "type": "plex", "name": "plex-nas", "port": 32400, "api_key_env": "PLEX_TOKEN" }
         ]
       }
     ]
@@ -131,11 +157,13 @@ Two files, both living in the sibling `personal_credentials` repo:
   `../personal_credentials/personal_hosts.json` → repo-root `hosts.json` →
   `~/.config/syncplex/hosts.json` → `~/syncplex_hosts.json`.
 
-- **`.env`** — the secrets. The inventory never holds keys; each service
+- **`.env`**: the secrets. The inventory never holds keys; each service
   names its env var (`api_key_env`). The TUI's queue access is three more
   keys here (`POSTGREST_URL`, `POSTGREST_JWT_SECRET`, `SYNCPLEX_OPERATOR`);
   the web container gets its database environment from compose instead.
-  See `.env.example` for expected keys.
+  Optional `NTFY_URL`, `NTFY_USERNAME` and `NTFY_PASSWORD` send admins an
+  ntfy push when a user files a request. See `.env.example` for expected
+  keys.
 
 ## Drive sync
 
@@ -178,9 +206,8 @@ live progress (rsync over SSH on macOS and Linux, a copy off the SMB share
 on Windows) and a log of what finished or failed; escape asks before stopping.
 A failed file does not stop the rest.
 
-For scripts, `--check` prints the plan without
-the TUI and exits 1 when the drive differs from its config (or names a title
-that is not on Plex):
+For scripts, `--check` prints the plan without the TUI and exits 1 when the
+drive differs from its config (or names a title that is not on Plex):
 
 ```bash
 syncplex drive /Volumes/ExtSSD/Media --check
@@ -263,25 +290,25 @@ docker compose -f docker_compose_projects.yaml exec syncplex-web \
 A host shell would either fail on missing `POSTGRES_*` env or reach a
 different database, so the compose form is the only supported one.
 
-The first account must be created this way — with zero accounts nobody can
+The first account must be created this way; with zero accounts nobody can
 log in. Admins add titles directly and work the approval queue at
-`/requests`; users can search everything but only *request* — nothing
+`/requests`; users can search everything but only *request*, and nothing
 downloads until an admin approves and picks the server. A password change,
 disable, re-enable, or role change all bump `password_changed_at`, which kills
 that account's live sessions immediately. Set `SYNCPLEX_SESSION_SECRET` so the
 NiceGUI session cookie survives restarts.
 
 `$SYNCPLEX_DATA_DIR` (`/data` in the container) still exists, but it now holds
-only NiceGUI's server-side session scratch — plus the
+only NiceGUI's server-side session scratch, plus the
 `users.json.migrated` / `requests.json.migrated` originals kept by the
 one-shot import (`scripts/import_json_stores.py`, run with `--dry-run` first).
 
 ## Deployment
 
-The web UI deploys as one container behind SWAG via
-`deploy/compose.elitedesk.yaml`, pulled into `Docker/docker_compose_projects.yaml`
-with `include:`. The image build installs only the media-remote dependencies
-(`uv sync --no-default-groups`) — drive-sync and TUI deps (including the
+The web UI deploys as one container behind SWAG via the compose file in
+`deploy/`, pulled into `Docker/docker_compose_projects.yaml` with `include:`.
+The image build installs only the media-remote dependencies
+(`uv sync --no-default-groups`). Drive-sync and TUI deps (including the
 private `readable-utils` package) are in a dependency group the build never
 touches; `syncplex drive` and the TUI import them lazily, so the image's
 `syncplex web` never loads them.
@@ -296,5 +323,5 @@ uv run ruff check .
 uv run mypy           # `type: ignore` comments are only real if something checks them
 ```
 
-Editors resolve imports via the repo-root `pyrightconfig.json` — no
-per-machine settings needed.
+Editors resolve imports via the repo-root `pyrightconfig.json`, so no
+per-machine settings are needed.
