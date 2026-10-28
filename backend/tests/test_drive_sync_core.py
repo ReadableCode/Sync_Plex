@@ -1,10 +1,16 @@
 """drive_sync core: config, fuzzy search, planning, progress parsing. No Plex, no disk beyond tmp."""
 
+import asyncio
+
 import pytest
+from textual.app import App
 
 from drive_sync import plan as planning
+from drive_sync import plex_api_wrapper as plex
 from drive_sync.drive_config import ConfigError, DriveConfig, ShowEntry
 from drive_sync.library import LibraryTitle, PlexLibrary, fuzzy_find
+from drive_sync.plan import Action, TitlePlan
+from drive_sync.screens import TitleScreen
 from drive_sync.transfer import parse_progress
 
 # --- config ---
@@ -63,6 +69,23 @@ def test_fuzzy_prefers_prefix_then_substring_then_similarity():
     assert "Family Guy" not in found
     assert [t.title for t in fuzzy_find("american dad", titles)][0] == "American Dad!"
     assert "Amercan Dad" in [t.title for t in fuzzy_find("american dad", titles)]
+
+
+def test_refresh_drops_cached_plex_responses(monkeypatch):
+    calls = []
+
+    def show_data(force_update=False):
+        calls.append(1)
+        return {"MediaContainer": {"Metadata": [{"title": "Severance", "ratingKey": len(calls)}]}}
+
+    monkeypatch.setattr(plex, "get_dict_plex_show_data", show_data)
+    plex.dict_cache["plex_season_data_1"] = [{"viewCount": 0}]
+    library = PlexLibrary()
+    assert library.shows()[0].rating_key == "1"
+    assert library.shows()[0].rating_key == "1"
+    library.refresh()
+    assert library.shows()[0].rating_key == "2"
+    assert "plex_season_data_1" not in plex.dict_cache
 
 
 # --- planning ---
@@ -184,12 +207,39 @@ def test_build_plan_groups_per_title_and_orders_deletes_first(library, monkeypat
     assert [a.op for a in plan.actions] == ["delete", "delete", "download", "synced"]
     by_name = {t.name: t for t in plan.titles}
     assert by_name["Severance"].on_drive == 1 and len(by_name["Severance"].downloads) == 1
+    assert [a.dest_path for a in by_name["Severance"].kept] == [str(tmp_path / "TV" / "Severance" / "S01E02.mkv")]
     assert [a.label for a in by_name["Severance"].deletes] == ["TV/Severance/S01E01.mkv"]
     assert by_name["Ghost Show"].missing.name == "Ghost Show"
     assert by_name["Ghost Show"].missing.suggestions == ()
     assert by_name["other files on drive"].delete_gb == 2.0
     assert plan.download_gb == 1.0 and plan.delete_gb == 3.0 and plan.net_gb == -2.0 and plan.fits
     assert not plan.is_clean and [m.name for m in plan.missing] == ["Ghost Show"]
+
+
+def test_title_screen_lists_removes_gets_and_keeps():
+    title = TitlePlan("show", "Severance", 2, 1)
+    title.deletes.append(Action("delete", "/d/TV/Severance/S01E01.mkv", 1.0, label="TV/Severance/S01E01.mkv"))
+    title.downloads.append(Action("download", "/d/TV/Severance/S01E03.mkv", 1.0, label="Season 1 · 3 · Who"))
+    title.kept.append(Action("synced", "/d/TV/Severance/S01E02.mkv", 1.0, label="Season 1 · 2 · Half Loop"))
+
+    class Host(App):
+        def on_mount(self) -> None:
+            self.push_screen(TitleScreen(title))
+
+    async def run(app):
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            table = app.screen.query_one("#files")
+            rows = [[str(cell) for cell in table.get_row_at(i)][:2] for i in range(table.row_count)]
+            assert rows == [
+                ["remove", "S01E01.mkv"],
+                ["get", "Season 1 · 3 · Who"],
+                ["keep", "Season 1 · 2 · Half Loop"],
+            ]
+            await pilot.press("escape")
+            assert not isinstance(app.screen, TitleScreen)
+
+    asyncio.run(run(Host()))
 
 
 # --- transfer ---

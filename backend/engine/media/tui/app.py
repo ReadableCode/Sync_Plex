@@ -242,8 +242,9 @@ class HelpScreen(ModalScreen[None]):
 
 [{GREEN_BRIGHT}]//[/] [bold]drive sync[/]  [{MUTED}](ctrl+s from anywhere, or `syncplex drive [folder]`)[/]
   browse to the drive's media folder: [bold]enter[/] opens · [bold]backspace[/] up · [bold]space[/] picks this folder
-  on the drive: [bold]enter[/] syncs · [bold]a[/]/[bold]m[/] add a show/movie · [bold]f[/] fix a title
-  [bold]d[/] remove · [bold]+[/]/[bold]-[/] episodes to keep · [bold]e[/] edit the config · [bold]escape[/] back
+  on the drive: [bold]enter[/] a title's files · [bold]s[/] syncs · [bold]a[/]/[bold]m[/] add a show/movie
+  [bold]f[/] fix a title · [bold]d[/] remove · [bold]+[/]/[bold]-[/] episodes to keep · [bold]e[/] edit the config
+  [bold]r[/] reload from plex · [bold]escape[/] back
 
 [{GREEN_BRIGHT}]//[/] [bold]everywhere[/]
   [bold]f1[/] or [bold]?[/] help · [bold]ctrl+q[/] quit

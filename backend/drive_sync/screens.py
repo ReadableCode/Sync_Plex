@@ -191,6 +191,55 @@ class FuzzyPickScreen(ModalScreen[str | None]):
         self.dismiss(None)
 
 
+class TitleScreen(ModalScreen[None]):
+    """One title's files: what a sync removes, what it downloads, and what stays."""
+
+    BINDINGS = [Binding("escape,q,enter", "close", "close")]
+    CSS = f"""
+    TitleScreen {{ align: center middle; }}
+    TitleScreen > Vertical {{
+        width: 90%; height: 80%; border: solid {HAIRLINE}; background: {SURFACE}; padding: 0 1;
+    }}
+    TitleScreen #title {{ padding: 1 1 0 1; color: {GREEN_BRIGHT}; text-style: bold; }}
+    TitleScreen #counts {{ padding: 0 1 1 1; }}
+    TitleScreen #files {{ height: 1fr; }}
+    TitleScreen #hint {{ color: {MUTED}; padding: 0 1; }}
+    """
+
+    def __init__(self, title: TitlePlan) -> None:
+        super().__init__()
+        self.title_plan = title
+
+    def compose(self) -> ComposeResult:
+        title = self.title_plan
+        with Vertical():
+            yield Static(title.name, id="title")
+            yield Static(
+                f"[{RED}]remove {len(title.deletes)} ({gb(title.delete_gb)})[/] · "
+                f"[{AMBER_BRIGHT}]get {len(title.downloads)} ({gb(title.download_gb)})[/] · "
+                f"keep {len(title.kept)}",
+                id="counts",
+            )
+            yield DataTable(id="files", cursor_type="row", zebra_stripes=True)
+            yield Static("escape closes", id="hint")
+
+    def on_mount(self) -> None:
+        table = self.query_one("#files", DataTable)
+        for name, width in (("", 8), ("file", 70), ("size", 10)):
+            table.add_column(name, width=width)
+        rows = (
+            [("remove", RED, a, os.path.basename(a.dest_path)) for a in self.title_plan.deletes]
+            + [("get", AMBER_BRIGHT, a, a.label) for a in self.title_plan.downloads]
+            + [("keep", MUTED, a, a.label) for a in self.title_plan.kept]
+        )
+        for op, colour, action, label in rows:
+            table.add_row(Text(op, style=colour), label, gb(action.size_gb))
+        table.focus()
+
+    def action_close(self) -> None:
+        self.dismiss(None)
+
+
 # --- the folder browser ---
 
 
@@ -310,7 +359,7 @@ class DriveScreen(Screen[None]):
     """One drive: every configured title with what Plex has, what the drive has, and what a sync would do."""
 
     BINDINGS = [
-        Binding("enter,s", "sync", "sync"),
+        Binding("s", "sync", "sync"),
         Binding("a", "add_show", "add show"),
         Binding("m", "add_movie", "add movie"),
         Binding("f", "fix", "fix title"),
@@ -366,15 +415,17 @@ class DriveScreen(Screen[None]):
     # --- loading ---
 
     def action_reload(self) -> None:
-        self.reload()
+        self.reload(refresh_plex=True)
 
-    def reload(self) -> None:
+    def reload(self, refresh_plex: bool = False) -> None:
         self.query_one("#summary", Static).update(f"[{MUTED}]reading config, asking plex, scanning the drive…[/]")
         self.query_one("#problem", Static).update("")
-        self.load_plan()
+        self.load_plan(refresh_plex)
 
     @work(thread=True, exclusive=True, group="plan")
-    def load_plan(self) -> None:
+    def load_plan(self, refresh_plex: bool = False) -> None:
+        if refresh_plex:
+            self.library.refresh()
         try:
             config = DriveConfig.load(self.folder)
         except ConfigError as exc:
@@ -409,7 +460,10 @@ class DriveScreen(Screen[None]):
             table.add_row(*self._row(title), key=f"{title.kind}|{title.name}")
         self.query_one("#summary", Static).update(self._summary(plan))
         missing = len(plan.missing)
-        hint = "enter syncs · a/m add a show/movie · d removes · +/- episodes to keep · e edits the file"
+        hint = (
+            "enter shows a title's files · s syncs · a/m add a show/movie · d removes"
+            " · +/- episodes to keep · e edits the file"
+        )
         if missing:
             hint = f"[{RED}]{missing} title(s) are not on plex: f on the row picks the right one[/] · " + hint
         self.query_one("#hint", Static).update(hint)
@@ -468,6 +522,13 @@ class DriveScreen(Screen[None]):
             if f"{title.kind}|{title.name}" == key:
                 return title
         return None
+
+    @on(DataTable.RowSelected, "#titles")
+    def open_title(self, event: DataTable.RowSelected) -> None:
+        """Enter, or a click on the highlighted row, shows that title's files."""
+        title = self._selected()
+        if title is not None:
+            self.app.push_screen(TitleScreen(title))
 
     def action_row(self, step: int) -> None:
         table = self.query_one("#titles", DataTable)

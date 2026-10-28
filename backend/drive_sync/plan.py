@@ -117,6 +117,7 @@ class TitlePlan:
     on_drive: int
     downloads: list[Action] = field(default_factory=list)
     deletes: list[Action] = field(default_factory=list)
+    kept: list[Action] = field(default_factory=list)  # wanted files already on the drive
     missing: Missing | None = None
 
     @property
@@ -291,9 +292,9 @@ def build_plan(
         title.wanted += 1
         if w.dest_path in existing:
             title.on_drive += 1
-            actions.append(
-                Action("synced", w.dest_path, existing[w.dest_path], w.kind, w.title, w.label, w.server_path)
-            )
+            action = Action("synced", w.dest_path, existing[w.dest_path], w.kind, w.title, w.label, w.server_path)
+            title.kept.append(action)
+            actions.append(action)
         else:
             action = Action("download", w.dest_path, w.size_gb, w.kind, w.title, w.label, w.server_path)
             title.downloads.append(action)

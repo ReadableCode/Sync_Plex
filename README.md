@@ -256,7 +256,9 @@ The drive screen is one row per configured title: how many files Plex has for
 it, how many are on the drive, and what a sync would get and remove, with a
 summary line of sizes against the drive's free space. Keys:
 
-- `enter` syncs (after a confirmation that names the counts and sizes)
+- `enter`, or a click on the highlighted row, lists that title's files: what a
+  sync removes, what it gets, and what stays
+- `s` syncs (after a confirmation that names the counts and sizes)
 - `a` / `m` add a show / movie: type part of the title, pick the Plex match
 - `f` on a title that is **not on plex** picks the right one and rewrites the
   config entry (the row already shows the closest guess)
@@ -264,7 +266,7 @@ summary line of sizes against the drive's free space. Keys:
 - `+` / `-` change how many next episodes a show keeps
 - `e` opens the config in an editor: VS Code when `code` is on PATH, else
   `$VISUAL`/`$EDITOR`, else nvim, else vim; `c` creates an empty config on a
-  folder that has none; `r` reloads
+  folder that has none; `r` reloads, asking Plex again for watched episodes
 
 The sync screen runs deletes first, then downloads, one row per file with
 live progress (rsync over SSH on macOS and Linux, a copy off the SMB share

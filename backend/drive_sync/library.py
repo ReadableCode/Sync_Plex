@@ -1,6 +1,6 @@
 """What the Plex server has: show and movie titles for matching and fuzzy
 search, plus the per-show episode walk the planner needs. A thin layer over
-plex_api_wrapper (which caches every response for the process lifetime) so
+plex_api_wrapper (which caches every response until refresh() drops it) so
 the planner and the TUI never touch raw JSON."""
 
 from __future__ import annotations
@@ -26,6 +26,12 @@ class PlexLibrary:
     def __init__(self) -> None:
         self._shows: list[LibraryTitle] | None = None
         self._movies: list[LibraryTitle] | None = None
+
+    def refresh(self) -> None:
+        """Drop everything cached here and in plex_api_wrapper, so watched counts come fresh from Plex."""
+        plex.clear_cache()
+        self._shows = None
+        self._movies = None
 
     def shows(self) -> list[LibraryTitle]:
         if self._shows is None:

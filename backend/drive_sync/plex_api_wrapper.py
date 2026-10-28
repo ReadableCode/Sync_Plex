@@ -27,6 +27,12 @@ def get_plex_token():
 
 dict_cache: dict[str, Any] = {}
 
+
+def clear_cache():
+    """Forget every cached response so the next call asks Plex again (watched counts change under us)."""
+    dict_cache.clear()
+
+
 # %%
 # Plex API #
 
