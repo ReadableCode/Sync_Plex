@@ -56,3 +56,18 @@ DROP POLICY IF EXISTS admin_all ON syncplex.requests;
 CREATE POLICY admin_all ON syncplex.requests
     USING (syncplex.jwt_is_admin())
     WITH CHECK (syncplex.jwt_is_admin());
+
+-- The one thing a user may learn about other accounts' rows: whether a title
+-- is already waiting for approval, so the search dialog can say "already
+-- requested" instead of filing a duplicate. SECURITY DEFINER (owned by the
+-- bootstrap superuser) reads past user_isolation; the answer is a boolean, so
+-- who asked and when never leave the table.
+CREATE OR REPLACE FUNCTION syncplex.title_pending(p_external_key text) RETURNS boolean
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
+    SELECT EXISTS (
+        SELECT 1 FROM syncplex.requests
+        WHERE external_key = p_external_key AND status = 'pending'
+    )
+$$;
+REVOKE ALL ON FUNCTION syncplex.title_pending(text) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION syncplex.title_pending(text) TO syncplex_user;

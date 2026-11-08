@@ -60,6 +60,22 @@ def test_postgrest_serves_the_syncplex_schema_to_the_user(users):
         users.remove(username)
 
 
+def test_title_pending_is_callable_by_a_user(users):
+    """POST /rpc/title_pending with a plain user's token: a PostgREST that has
+    not reloaded its schema cache, or a missing EXECUTE grant, answers 404/401
+    and StoreError is raised here. A key nobody filed reads False."""
+    from engine.media.models import MediaSearchResult, MediaType
+
+    username = f"ztest{uuid.uuid4().hex[:10]}"
+    users.add(username, PW)
+    try:
+        store = _login(users, username)
+        nobody = MediaSearchResult(media_type=MediaType.TV, title=f"ztest {uuid.uuid4().hex}")
+        assert store.title_pending(nobody) is False
+    finally:
+        users.remove(username)
+
+
 def test_the_tui_minted_admin_token_reaches_the_queue(users):
     """The TUI signs in nobody: engine/media/tui/operator.py mints an admin
     JWT from POSTGREST_JWT_SECRET in .env. This proves that secret is the one

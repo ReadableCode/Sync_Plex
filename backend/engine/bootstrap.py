@@ -27,7 +27,7 @@ log = logging.getLogger("syncplex.bootstrap")
 # ships in the image; see the header of 02_schema.sql.
 DEPLOY_DIR = Path(__file__).resolve().parent.parent / "deploy"
 SCHEMA_FILES = ("02_schema.sql", "03_secure_users.sql", "04_rls.sql")
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 ROLE_SQL = """
 DO $$

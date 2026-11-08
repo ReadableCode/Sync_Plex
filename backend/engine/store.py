@@ -93,6 +93,19 @@ def delete_request(token: str, request_id: str, extra: dict[str, str] | None = N
     return resp.json()
 
 
+def title_pending(token: str, external_key: str) -> bool:
+    """Whether anyone has this title waiting for approval (the
+    syncplex.title_pending function in deploy/04_rls.sql); answers yes/no
+    only, never who asked."""
+    resp = _http().post(
+        f"{config.POSTGREST_URL}/rpc/title_pending",
+        headers=_headers(token, write=True),
+        json={"p_external_key": external_key},
+    )
+    _check(resp)
+    return resp.json() is True
+
+
 def postgrest_reachable() -> tuple[bool, str]:
     try:
         resp = _http().get(f"{config.POSTGREST_URL}/", headers={"Accept-Profile": config.APP_SCHEMA})

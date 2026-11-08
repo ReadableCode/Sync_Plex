@@ -538,15 +538,37 @@ def run_web(host: str = "127.0.0.1", port: int = 8788) -> None:  # noqa: C901 �
                 def _request_actions() -> None:
                     """Non-admins never add directly — they file a request
                     that an admin approves (and targets) at /requests."""
-                    # Only this user's own open requests are visible now: row-level
-                    # security scopes the queue per account, so the card can no longer
-                    # say who else asked for a title.
+                    # A title already on a server, downloaded or still coming, is not
+                    # requestable: say where it is instead of offering the button.
+                    on_server = [
+                        s
+                        for s in aggregated.statuses
+                        if s.state in (PresenceState.MONITORED_COMPLETE, PresenceState.MONITORED_INCOMPLETE)
+                    ]
+                    if on_server:
+                        for status in on_server:
+                            where = _short(status.instance)
+                            if status.state == PresenceState.MONITORED_COMPLETE:
+                                ui.label(f"✓ already downloaded on {where}").classes("state-complete")
+                            elif status.missing_episode_count is not None and status.total_episode_count:
+                                have = status.total_episode_count - status.missing_episode_count
+                                ui.label(
+                                    f"◐ already on {where} — {have}/{status.total_episode_count} eps downloaded"
+                                ).classes("state-partial")
+                            else:
+                                ui.label(f"◐ already on {where} — set to download").classes("state-partial")
+                        return
+                    # RLS shows this user only their own rows; title_pending answers
+                    # for everyone else without saying who asked.
                     pending = _requests(user).find_pending(r)
                     if pending is not None:
-                        ui.label("⏳ requested by you — waiting for admin approval").classes("req-pending")
+                        ui.label("⏳ requested by you — a copy will be searched for soon").classes("req-pending")
                         ui.button("withdraw request", on_click=lambda: do_withdraw(pending.id)).props(
                             "flat no-caps"
                         ).classes("w-full")
+                        return
+                    if _requests(user).title_pending(r):
+                        ui.label("⏳ already requested — a copy will be searched for soon").classes("req-pending")
                         return
                     estimate = _worst_case_estimate()
                     if estimate is None:
@@ -554,16 +576,19 @@ def run_web(host: str = "127.0.0.1", port: int = 8788) -> None:  # noqa: C901 �
                     ui.button(f"request this title · ~{format_bytes(estimate)}", on_click=do_request).classes(
                         "w-full"
                     ).props("size=lg color=positive text-color=dark")
-                    ui.label("an admin approves it and picks the server before anything downloads").classes(
-                        "text-xs muted"
-                    )
+                    ui.label("it goes on a server and a copy is searched for shortly after").classes("text-xs muted")
 
                 def do_request() -> None:
                     already_pending = _requests(user).find_pending(r) is not None
-                    request = _requests(user).create(r, user.username)
+                    try:
+                        request = _requests(user).create(r, user.username)
+                    except ValueError as exc:  # someone else asked for it since the dialog opened
+                        ui.notify(str(exc), color="warning", position="top")
+                        render_actions()
+                        return
                     if not already_pending:  # duplicate clicks return the existing request — don't re-ping
                         notify_new_request(request, estimate_bytes=_worst_case_estimate())
-                    ui.notify(f"requested '{request.result.title}' — waiting for admin approval", position="top")
+                    ui.notify(f"requested '{request.result.title}' — a copy will be searched for soon", position="top")
                     render_actions()
 
                 def do_withdraw(request_id: str) -> None:

@@ -252,6 +252,31 @@ def test_rls_denies_everything_without_claims(two_accounts):
         conn.commit()
 
 
+def test_title_pending_answers_across_accounts_without_the_row(two_accounts):
+    """A user cannot read another account's pending row, but title_pending
+    still says the title is taken, and says nothing more than yes/no."""
+    user, admin = two_accounts
+    request_id = uuid.uuid4().hex[:12]
+    with psycopg.connect(config.superuser_dsn()) as conn:
+        with conn.cursor() as cur:
+            _seed(cur, admin.id, admin.username, request_id)
+        conn.commit()
+        try:
+            with conn.cursor() as cur:
+                _as_role(cur, _claims(user.id))
+                cur.execute(f"SELECT count(*) FROM {config.APP_SCHEMA}.requests WHERE id = %s", (request_id,))
+                assert cur.fetchone()[0] == 0, "the row itself stays hidden"
+                cur.execute(f"SELECT {config.APP_SCHEMA}.title_pending(%s)", (f"key:{request_id}",))
+                assert cur.fetchone()[0] is True
+                cur.execute(f"SELECT {config.APP_SCHEMA}.title_pending(%s)", (f"key:{uuid.uuid4().hex}",))
+                assert cur.fetchone()[0] is False
+            conn.rollback()
+        finally:
+            with conn.cursor() as cur:
+                cur.execute(f"DELETE FROM {config.APP_SCHEMA}.requests WHERE id = %s", (request_id,))
+            conn.commit()
+
+
 def test_stored_hash_stays_verifiable_at_login(store, temp_username):
     """Nobody gets a password reset, so a hash login cannot read means a
     locked-out account.

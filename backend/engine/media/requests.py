@@ -101,11 +101,8 @@ class RequestStore:
         """This user's own open request for the same title (matched by
         external id).
 
-        Scoped to the caller, unlike the JSON store, which scanned the whole
-        queue. Under RLS a non-admin cannot see anyone else's pending rows, so
-        a global check is not something the app can honestly do any more —
-        two people wanting the same title now file two requests and the admin
-        sees both.
+        Scoped to the caller: under RLS a non-admin cannot see anyone else's
+        pending rows. ``title_pending`` is the yes/no check across accounts.
         """
         rows = pgrest.select_requests(
             self.token,
@@ -119,14 +116,22 @@ class RequestStore:
         )
         return _to_request(rows[0]) if rows else None
 
+    def title_pending(self, result: MediaSearchResult) -> bool:
+        """Whether anyone, this user or another, has the title waiting for
+        approval. RLS hides other accounts' rows, so this asks a database
+        function that answers yes/no without saying who."""
+        return pgrest.title_pending(self.token, result.external_key)
+
     # --- mutations ---
 
     def create(self, result: MediaSearchResult, requested_by: str) -> MediaRequest:
         """File a request; returns this user's existing open one instead of a
-        duplicate."""
+        duplicate, and refuses a title someone else already has waiting."""
         existing = self.find_pending(result)
         if existing is not None:
             return existing
+        if self.title_pending(result):
+            raise ValueError(f"'{result.title}' is already requested — a copy will be searched for soon")
         row = pgrest.insert_request(
             self.token,
             {
