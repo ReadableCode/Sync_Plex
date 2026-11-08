@@ -204,6 +204,10 @@ a.nav-link:hover { color: var(--green-bright); }
 .req-denied { color: var(--dot-red); }
 """
 
+# Resolved requests shown per "show older" step; each approved one costs a
+# lookup on every instance of its type, so the page does not check them all.
+HISTORY_PAGE = 10
+
 REQUEST_BADGE = {
     RequestStatus.PENDING: ("⏳ pending", "req-pending"),
     RequestStatus.APPROVED: ("✓ approved", "req-approved"),
@@ -652,13 +656,69 @@ def run_web(host: str = "127.0.0.1", port: int = 8788) -> None:  # noqa: C901 �
             kind = "show" if request.result.media_type == MediaType.TV else "movie"
             return f"{kind} · requested by {request.requested_by} · {request.requested_at:%Y-%m-%d %H:%M}"
 
-        def _history_row(request: MediaRequest) -> None:
+        def _history_card(request: MediaRequest) -> Callable[[], Awaitable[None]] | None:
+            """One resolved request: the full title, who asked and when, where it
+            went, and — for approvals — whether the server has it yet and whether
+            Plex can play it. Returns the coroutine that fills that live line in."""
             label, badge_class = REQUEST_BADGE[request.status]
-            with ui.row().classes("items-center w-full no-wrap gap-2"):
-                ui.label(label).classes(f"{badge_class} text-xs shrink-0")
-                ui.label(request.title_line).classes("text-sm grow truncate")
-                detail = f"→ {request.instance}" if request.instance else (request.note or "")
-                ui.label(f"{request.requested_by} {detail}".strip()).classes("text-xs muted shrink-0")
+            kind = "show" if request.result.media_type == MediaType.TV else "movie"
+            with ui.card().classes("w-full gap-1"):
+                ui.label(request.title_line).classes("text-sm font-bold")
+                resolved = request.resolved_at or request.requested_at
+                detail = f"{kind} · {request.requested_by} · {resolved:%Y-%m-%d}"
+                if request.instance:
+                    detail += f" → {_short(request.instance)}"
+                with ui.row().classes("items-center w-full gap-x-2 gap-y-0"):
+                    ui.label(label).classes(f"{badge_class} text-xs")
+                    ui.label(detail).classes("text-xs muted")
+                if request.note:
+                    ui.label(request.note).classes("text-xs state-error")
+                if request.status != RequestStatus.APPROVED or not request.instance:
+                    return None
+                live = ui.column().classes("w-full gap-0")
+                with live:
+                    ui.label("checking…").classes("text-xs muted")
+
+            generation = state["generation"]
+
+            async def fill() -> None:
+                try:
+                    aggregated = await lookup_status(request.result, config)
+                    await asyncio.gather(
+                        enrich_tv_statuses(aggregated, config),
+                        check_plex_availability(aggregated, config) if config.plex else asyncio.sleep(0),
+                    )
+                except Exception as exc:  # noqa: BLE001 — one unreachable server must not blank the history
+                    if generation == state["generation"]:
+                        live.clear()
+                        with live:
+                            ui.label(f"couldn't reach the servers: {exc}"[:160]).classes("text-xs state-error")
+                    return
+                if generation != state["generation"]:
+                    return
+                live.clear()
+                with live:
+                    status = aggregated.status_for(request.instance)
+                    if status is None:
+                        ui.label(f"{_short(request.instance)}: no answer").classes("text-xs state-error")
+                    else:
+                        text, css = _badge(status)
+                        line = f"{_short(request.instance)}: {text}"
+                        if status.missing_episode_count is not None and status.total_episode_count:
+                            have = status.total_episode_count - status.missing_episode_count
+                            line += f" · {have}/{status.total_episode_count} eps"
+                        if status.size_on_disk:
+                            line += f" · {format_bytes(status.size_on_disk)}"
+                        ui.label(line).classes(f"text-xs {css}")
+                    for plex in aggregated.plex:
+                        if plex.available:
+                            ui.label(f"▶ {plex.server}: watch-ready").classes("text-xs state-complete")
+                        elif plex.error:
+                            ui.label(f"✗ {plex.server}: unreachable").classes("text-xs state-error")
+                        else:
+                            ui.label(f"· {plex.server}: not in plex yet").classes("text-xs state-absent")
+
+            return fill
 
         def _admin_card(request: MediaRequest) -> Callable[[], Awaitable[None]]:
             """Render one pending request for the admin and return the coroutine
@@ -818,6 +878,23 @@ def run_web(host: str = "127.0.0.1", port: int = 8788) -> None:  # noqa: C901 �
                 state["health"] = {}
             await asyncio.gather(*(fill() for fill in fills))
 
+        def _history_page(history: list[MediaRequest], start: int, holder) -> None:
+            """Render the next HISTORY_PAGE resolved requests into `holder`, with
+            a "show older" button after them while more remain."""
+            holder.clear()
+            with holder:
+                page = history[start : start + HISTORY_PAGE]
+                fills = [f for f in (_history_card(request) for request in page) if f]
+                if fills:
+                    ui.timer(0.0, lambda: _fill_cards(fills), once=True)
+                if start + HISTORY_PAGE < len(history):
+                    more = ui.column().classes("w-full gap-3")
+                    with more:
+                        ui.button(
+                            "show older",
+                            on_click=lambda: _history_page(history, start + HISTORY_PAGE, more),
+                        ).props("flat dense no-caps size=sm color=info")
+
         def _own_card(request: MediaRequest) -> None:
             label, badge_class = REQUEST_BADGE[request.status]
             with ui.card().classes("w-full gap-1"):
@@ -854,11 +931,10 @@ def run_web(host: str = "127.0.0.1", port: int = 8788) -> None:  # noqa: C901 �
                     if fills:
                         # Cards render at once; the server picture streams in behind them.
                         ui.timer(0.0, lambda: _fill_cards(fills), once=True)
-                    history = [r for r in _requests(user).list() if r.status != RequestStatus.PENDING][:30]
+                    history = [r for r in _requests(user).list() if r.status != RequestStatus.PENDING]
                     if history:
                         _section("history")
-                        for request in history:
-                            _history_row(request)
+                        _history_page(history, 0, ui.column().classes("w-full gap-3"))
                 else:
                     mine = _requests(user).list(requested_by=user.username)
                     _section("your requests")
